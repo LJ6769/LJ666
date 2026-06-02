@@ -1,0 +1,3 @@
+-- 已废弃：Supabase 不允许直接 DELETE storage.objects。
+-- 删号时 Storage 清理由 App 调用 Storage API（见 lib/services/user_storage_cleanup.dart）。
+-- 请执行 20260628140000_fix_delete_account_storage_api.sql 修正 delete_my_account。

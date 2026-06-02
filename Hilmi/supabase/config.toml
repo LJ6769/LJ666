@@ -1,0 +1,8 @@
+# Supabase CLI（可选）
+project_id = "wcuvzeyusbmfwgrmugou"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
