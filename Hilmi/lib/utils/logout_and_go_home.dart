@@ -1,3 +1,4 @@
+// 退出登录并导航回 HomePage Discover Tab。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/core/home_shell.dart';

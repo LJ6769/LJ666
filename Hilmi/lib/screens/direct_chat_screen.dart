@@ -1,25 +1,24 @@
+// 一对一私信聊天页（气泡、输入、头部资料）。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/direct_chat_controller.dart';
 import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/hidden_conversations_service.dart';
-import 'package:hilmi/core/message_list_refresh_signal.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/data/message_repository.dart';
 import 'package:hilmi/models/direct_chat_message.dart';
 import 'package:hilmi/models/direct_chat_peer.dart';
 import 'package:hilmi/utils/keyboard_dismiss.dart';
-import 'package:hilmi/utils/open_direct_video_call.dart';
 import 'package:hilmi/utils/open_star_profile.dart';
-import 'package:hilmi/utils/open_login_screen.dart';
 import 'package:hilmi/utils/user_handle.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
-import 'package:hilmi/widgets/circle/circle_post_more_sheet.dart';
 import 'package:hilmi/widgets/follow/follow_action_button.dart';
 import 'package:hilmi/widgets/message/direct_chat_assets.dart';
 import 'package:hilmi/widgets/message/direct_chat_layout.dart';
 
 /// 一对一私信聊天页（对齐设计稿）。
-class DirectChatScreen extends StatefulWidget {
+class DirectChatScreen extends StatelessWidget {
   const DirectChatScreen({
     super.key,
     required this.peer,
@@ -34,129 +33,26 @@ class DirectChatScreen extends StatefulWidget {
   static const _headerBarColor = Color(0xFF9289C3);
 
   @override
-  State<DirectChatScreen> createState() => _DirectChatScreenState();
+  Widget build(BuildContext context) {
+    return GetxScreen<DirectChatController>(
+      create: () => DirectChatController(peer: peer, repository: repository),
+      builder: (c) => _DirectChatBody(controller: c),
+    );
+  }
 }
 
-class _DirectChatScreenState extends State<DirectChatScreen> {
-  final _inputController = TextEditingController();
-  final _scrollController = ScrollController();
-  List<DirectChatMessage> _messages = const [];
-  String? _conversationId;
-  bool _loading = true;
-  bool _sending = false;
+class _DirectChatBody extends StatelessWidget {
+  const _DirectChatBody({required this.controller});
 
-  String? get _myId => AuthService.cachedProfile?.id;
+  final DirectChatController controller;
 
   double _scale(BuildContext context) =>
       MediaQuery.sizeOf(context).width / DirectChatLayout.designWidth;
 
   @override
-  void initState() {
-    super.initState();
-    _conversationId = widget.peer.conversationId;
-    _loadMessages();
-  }
-
-  @override
-  void dispose() {
-    _inputController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadMessages() async {
-    setState(() => _loading = true);
-
-    _conversationId ??= await widget.repository.findConversationId(widget.peer.id);
-
-    if (_conversationId != null && _conversationId!.isNotEmpty) {
-      final messages =
-          await widget.repository.fetchChatMessages(_conversationId!);
-      if (mounted) {
-        setState(() {
-          _messages = messages;
-          _loading = false;
-        });
-        _scrollToBottom();
-      }
-    } else if (mounted) {
-      setState(() {
-        _messages = const [];
-        _loading = false;
-      });
-    }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  Future<void> _onVideoTap() {
-    return openDirectVideoCall(context, peer: widget.peer);
-  }
-
-  Future<void> _onMoreTap() async {
-    final result = await CirclePostMoreSheet.showForUser(
-      context,
-      userId: widget.peer.id,
-    );
-    if (result == CirclePostMoreResult.blacklisted && mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
-  Future<void> _onSend() async {
-    if (_sending) return;
-    final text = _inputController.text.trim();
-    if (text.isEmpty) return;
-
-    if (!await ensureLoggedIn(context, loginHint: 'Please sign in to send messages')) {
-      return;
-    }
-    if (!mounted) return;
-
-    setState(() => _sending = true);
-    dismissKeyboard(context);
-
-    try {
-      final message = await widget.repository.sendChatMessage(
-        peerId: widget.peer.id,
-        body: text,
-        conversationId: _conversationId,
-      );
-      if (!mounted) return;
-      _conversationId ??= await widget.repository.findConversationId(widget.peer.id);
-      await HiddenConversationsService.unhidePeer(widget.peer.id);
-      MessageListRefreshSignal.notify();
-      _inputController.clear();
-      setState(() {
-        _messages = [..._messages, message];
-        _sending = false;
-      });
-      _scrollToBottom();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _sending = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final s = _scale(context);
-    final peer = widget.peer;
+    final peer = controller.peer;
     final handle = formatUserHandle(email: peer.email, userId: peer.id);
     final myName = AuthService.cachedProfile?.displayName ?? 'Me';
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
@@ -178,74 +74,78 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
               peerEmail: peer.email,
               peerHandle: handle,
               peerAvatarUrl: peer.avatarUrl,
-              onMoreTap: _onMoreTap,
-              onVideoTap: _onVideoTap,
+              onMoreTap: () => controller.onMoreTap(context),
+              onVideoTap: () => controller.onVideoTap(context),
             ),
             Expanded(
-              child: _loading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFD14D4D),
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: EdgeInsets.fromLTRB(16 * s, 12 * s, 16 * s, 12 * s),
-                      itemCount: _messages.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == 0) {
-                          if (_messages.isEmpty) return const SizedBox.shrink();
-                          final t = _messages.first.createdAt.toLocal();
-                          return Padding(
-                            padding: EdgeInsets.only(bottom: 16 * s),
-                            child: Center(
-                              child: Text(
-                                _formatClock(t),
-                                style: TextStyle(
-                                  fontSize: 12 * s,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black.withValues(alpha: 0.35),
+              child: Obx(
+                () => controller.loading.value
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFD14D4D),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: controller.scrollController,
+                        padding:
+                            EdgeInsets.fromLTRB(16 * s, 12 * s, 16 * s, 12 * s),
+                        itemCount: controller.messages.length + 1,
+                        itemBuilder: (context, index) {
+                          final messages = controller.messages;
+                          if (index == 0) {
+                            if (messages.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final t = messages.first.createdAt.toLocal();
+                            return Padding(
+                              padding: EdgeInsets.only(bottom: 16 * s),
+                              child: Center(
+                                child: Text(
+                                  DirectChatController.formatClock(t),
+                                  style: TextStyle(
+                                    fontSize: 12 * s,
+                                    fontWeight: FontWeight.w600,
+                                    color:
+                                        Colors.black.withValues(alpha: 0.35),
+                                  ),
                                 ),
                               ),
+                            );
+                          }
+                          final message = messages[index - 1];
+                          final isMine = message.senderId == controller.myId;
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: 14 * s),
+                            child: _DirectChatBubble(
+                              scale: s,
+                              message: message,
+                              isMine: isMine,
+                              displayName: isMine
+                                  ? myName
+                                  : (message.senderName ?? peer.name),
+                              avatarUrl: isMine
+                                  ? AuthService.cachedProfile?.avatarUrl
+                                  : (message.senderAvatarUrl ?? peer.avatarUrl),
                             ),
                           );
-                        }
-                        final message = _messages[index - 1];
-                        final isMine = message.senderId == _myId;
-                        return Padding(
-                          padding: EdgeInsets.only(bottom: 14 * s),
-                          child: _DirectChatBubble(
-                            scale: s,
-                            message: message,
-                            isMine: isMine,
-                            displayName:
-                                isMine ? myName : (message.senderName ?? peer.name),
-                            avatarUrl: isMine
-                                ? AuthService.cachedProfile?.avatarUrl
-                                : (message.senderAvatarUrl ?? peer.avatarUrl),
-                          ),
-                        );
-                      },
-                    ),
+                        },
+                      ),
+              ),
             ),
-            _DirectChatInputBar(
-              scale: s,
-              bottomInset: bottomInset,
-              controller: _inputController,
-              sending: _sending,
-              onSend: _onSend,
+            Obx(
+              () => _DirectChatInputBar(
+                scale: s,
+                bottomInset: bottomInset,
+                controller: controller.inputController,
+                sending: controller.sending.value,
+                onSend: () => controller.onSend(context),
+              ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  static String _formatClock(DateTime time) {
-    final h = time.hour.toString().padLeft(2, '0');
-    final m = time.minute.toString().padLeft(2, '0');
-    return '$h:$m';
   }
 }
 

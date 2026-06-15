@@ -1,3 +1,4 @@
+// 朋友圈 Post 表：列表、详情、评论、删帖等。
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -58,12 +59,29 @@ class CircleRepository {
     }
   }
 
-  /// Popular：排除拉黑作者后随机抽取 [feedDisplayCount] 条；库内不足则有几条显示几条。
+  /// Popular：首次进入拉取并缓存 30 天；后续从本地读取（下拉刷新强制重拉）。
   Future<List<CirclePost>> fetchPopularPosts({
     bool forceRefresh = false,
     Set<String> blockedAuthorIds = const {},
   }) async {
     const target = FeedConfig.circleDisplayCount;
+
+    if (forceRefresh) {
+      FeedDataCache.invalidateCirclePosts();
+    } else {
+      final cached = FeedDataCache.circlePopularPosts;
+      if (cached != null) {
+        final resolved = await _resolvePopularDisplayList(
+          cached,
+          blockedAuthorIds: blockedAuthorIds,
+          target: target,
+        );
+        if (resolved.isNotEmpty) {
+          FeedDataCache.setCirclePopularPosts(resolved);
+        }
+        if (resolved.length >= target) return resolved;
+      }
+    }
     var queryLimit = FeedConfig.circlePoolLimit;
     var refresh = forceRefresh;
 
@@ -71,24 +89,23 @@ class CircleRepository {
       final pool = await fetchAllPosts(limit: queryLimit, forceRefresh: refresh);
       refresh = false;
 
-      final eligible = pool
-          .where((post) => !blockedAuthorIds.contains(post.authorId))
-          .toList();
+      final eligible = _filterBlockedAuthors(pool, blockedAuthorIds);
 
       final hasMoreInDb = pool.length >= queryLimit;
       if (eligible.length >= target || !hasMoreInDb) {
-        if (eligible.isEmpty) return eligible;
-        final shuffled = List<CirclePost>.from(eligible)..shuffle(Random());
-        return shuffled.length <= target
-            ? shuffled
-            : shuffled.take(target).toList();
+        final result = _pickRandomPosts(eligible, target);
+        if (result.isNotEmpty) {
+          FeedDataCache.setCirclePopularPosts(result);
+        }
+        return result;
       }
 
       if (queryLimit >= FeedConfig.circleMaxFetchLimit) {
-        final shuffled = List<CirclePost>.from(eligible)..shuffle(Random());
-        return shuffled.length <= target
-            ? shuffled
-            : shuffled.take(target).toList();
+        final result = _pickRandomPosts(eligible, target);
+        if (result.isNotEmpty) {
+          FeedDataCache.setCirclePopularPosts(result);
+        }
+        return result;
       }
 
       queryLimit += FeedConfig.circlePoolLimit;
@@ -96,15 +113,118 @@ class CircleRepository {
     }
   }
 
-  /// Followed：仅包含已关注作者（[followedAuthorIds] 由界面本地维护）。
-  List<CirclePost> filterFollowedPosts(
-    List<CirclePost> all,
-    Set<String> followedAuthorIds,
+  List<CirclePost> _filterBlockedAuthors(
+    List<CirclePost> posts,
+    Set<String> blockedAuthorIds,
   ) {
+    if (blockedAuthorIds.isEmpty) return posts;
+    return posts
+        .where((post) => !blockedAuthorIds.contains(post.authorId))
+        .toList(growable: false);
+  }
+
+  Future<List<CirclePost>> _resolvePopularDisplayList(
+    List<CirclePost> current,
+    {
+    required Set<String> blockedAuthorIds,
+    required int target,
+  }) async {
+    final kept = _filterBlockedAuthors(current, blockedAuthorIds);
+    if (kept.length >= target) {
+      return kept.take(target).toList(growable: false);
+    }
+    return _refillPopularFromPool(
+      kept,
+      blockedAuthorIds: blockedAuthorIds,
+      target: target,
+    );
+  }
+
+  Future<List<CirclePost>> _refillPopularFromPool(
+    List<CirclePost> kept, {
+    required Set<String> blockedAuthorIds,
+    required int target,
+  }) async {
+    final keptIds = kept.map((post) => post.id).toSet();
+    var pool = FeedDataCache.circlePosts;
+    if (pool == null || pool.isEmpty) {
+      pool = await fetchAllPosts(limit: FeedConfig.circlePoolLimit);
+    }
+
+    final candidates = _filterBlockedAuthors(pool, blockedAuthorIds)
+        .where((post) => !keptIds.contains(post.id))
+        .toList(growable: false);
+    final result = List<CirclePost>.from(kept);
+    if (result.length < target && candidates.isNotEmpty) {
+      final shuffled = List<CirclePost>.from(candidates)..shuffle(Random());
+      for (final post in shuffled) {
+        if (result.length >= target) break;
+        result.add(post);
+      }
+    }
+    return result;
+  }
+
+  List<CirclePost> _pickRandomPosts(List<CirclePost> eligible, int target) {
+    if (eligible.isEmpty) return eligible;
+    final shuffled = List<CirclePost>.from(eligible)..shuffle(Random());
+    return shuffled.length <= target
+        ? shuffled
+        : shuffled.take(target).toList();
+  }
+
+  /// Followed：首次拉取并缓存 30 天；后续从本地读取（下拉刷新强制重拉）。
+  Future<List<CirclePost>> fetchFollowedPosts({
+    required String userId,
+    required Set<String> followedAuthorIds,
+    Set<String> blockedAuthorIds = const {},
+    bool forceRefresh = false,
+    int limit = FeedConfig.circleDisplayCount,
+  }) async {
     if (followedAuthorIds.isEmpty) return const [];
-    return all
-        .where((post) => followedAuthorIds.contains(post.authorId))
-        .toList();
+
+    final cacheUserId = userId.trim();
+    if (forceRefresh) {
+      FeedDataCache.invalidateCircleFollowedPosts(cacheUserId);
+    } else if (cacheUserId.isNotEmpty) {
+      final cached = FeedDataCache.circleFollowedPosts(
+        cacheUserId,
+        followedAuthorIds,
+      );
+      if (cached != null) {
+        return _filterBlockedAuthors(cached, blockedAuthorIds);
+      }
+    }
+
+    final eligibleIds = followedAuthorIds
+        .where((id) => !blockedAuthorIds.contains(id))
+        .toList(growable: false);
+    if (eligibleIds.isEmpty) return const [];
+
+    final client = AppBootstrap.client;
+    if (!AppBootstrap.isReady || client == null) return const [];
+
+    try {
+      final rows = await client
+          .from(SupabaseTables.post)
+          .select(_postSelectQuery)
+          .inFilter('author_id', eligibleIds)
+          .order('created_at', ascending: false)
+          .limit(limit) as List<dynamic>;
+      final posts = await _mapPostList(client, rows);
+      if (cacheUserId.isNotEmpty) {
+        FeedDataCache.setCircleFollowedPosts(
+          cacheUserId,
+          posts: posts,
+          followedIds: followedAuthorIds,
+        );
+      }
+      return posts;
+    } catch (error, stack) {
+      debugPrint('[CircleRepository] fetchFollowedPosts: $error');
+      debugPrint('$stack');
+      return const [];
+    }
   }
 
   /// 当前用户发布的帖子（个人中心 My Post）。
@@ -359,6 +479,31 @@ class CircleRepository {
       content: trimmed,
       createdAt: _parseDateTime(map['created_at']) ?? DateTime.now(),
     );
+  }
+
+  /// 删除当前用户发表的评论。
+  Future<bool> deleteComment(String commentId) async {
+    final client = AppBootstrap.client;
+    if (!AppBootstrap.isReady || client == null) return false;
+
+    final id = commentId.trim();
+    if (id.isEmpty) return false;
+
+    if (!AuthService.isLoggedIn) {
+      throw StateError('Not signed in');
+    }
+
+    try {
+      await client.rpc(
+        'delete_own_post_comment',
+        params: {'p_comment_id': id},
+      );
+      return true;
+    } catch (error, stack) {
+      debugPrint('[CircleRepository] deleteComment: $error');
+      debugPrint('$stack');
+      rethrow;
+    }
   }
 
   /// 删除当前用户发布的帖子（含评论级联；尽力清理 Storage 媒体）。

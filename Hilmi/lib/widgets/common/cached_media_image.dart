@@ -1,9 +1,10 @@
+// 带磁盘/内存缓存的远程图片组件（原画质，减 Storage egress）。
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:hilmi/core/app_media_cache_manager.dart';
 import 'package:hilmi/utils/media_url.dart';
 
-/// 远程图片（Supabase Storage 等）：磁盘 + 内存缓存，减少重复 egress。
+/// 远程图片（Supabase Storage 等）：磁盘 + 内存缓存，保留原文件画质。
 class CachedMediaImage extends StatelessWidget {
   const CachedMediaImage({
     super.key,
@@ -33,14 +34,18 @@ class CachedMediaImage extends StatelessWidget {
     final key = cacheKey?.trim();
     if (key != null && key.isNotEmpty) {
       try {
-        await DefaultCacheManager().removeFile(key);
+        await AppMediaCacheManager.instance.removeFile(key);
       } catch (_) {}
     }
 
     final imageUrl = url?.trim();
     if (imageUrl != null && imageUrl.isNotEmpty) {
       try {
-        await CachedNetworkImage.evictFromCache(imageUrl);
+        await CachedNetworkImage.evictFromCache(
+          imageUrl,
+          cacheKey: key,
+          cacheManager: AppMediaCacheManager.instance,
+        );
       } catch (_) {}
     }
   }
@@ -59,27 +64,15 @@ class CachedMediaImage extends StatelessWidget {
             ? cacheKey!.trim()
             : storagePathFromMediaUrl(url);
 
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    int? memCacheWidth;
-    int? memCacheHeight;
-    if (width != null && width!.isFinite && width! > 0) {
-      memCacheWidth = (width! * dpr).round().clamp(1, 2048);
-    }
-    if (height != null && height!.isFinite && height! > 0) {
-      memCacheHeight = (height! * dpr).round().clamp(1, 2048);
-    }
-
     return CachedNetworkImage(
       imageUrl: url,
       cacheKey: resolvedCacheKey,
-      memCacheWidth: memCacheWidth,
-      memCacheHeight: memCacheHeight,
-      maxWidthDiskCache: memCacheWidth,
-      maxHeightDiskCache: memCacheHeight,
+      cacheManager: AppMediaCacheManager.instance,
       fit: fit,
       alignment: alignment,
       width: width,
       height: height,
+      useOldImageOnUrlChange: true,
       fadeInDuration: Duration.zero,
       fadeOutDuration: Duration.zero,
       placeholder: placeholder == null

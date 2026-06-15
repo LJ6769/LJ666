@@ -1,3 +1,4 @@
+// 注册第二步本地头像异步预览组件。
 import 'dart:io';
 
 import 'package:flutter/material.dart';

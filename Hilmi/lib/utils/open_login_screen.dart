@@ -1,3 +1,4 @@
+// 导航打开登录页并暂停底层媒体播放。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/core/foreground_media_pause.dart';

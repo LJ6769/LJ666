@@ -1,3 +1,4 @@
+// 直播间顶部：返回、Live 角标、主播信息。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
 import 'package:hilmi/widgets/follow/follow_action_button.dart';

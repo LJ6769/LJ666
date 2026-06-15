@@ -1,3 +1,4 @@
+// 视频通话页布局常量。
 abstract final class VideoCallLayout {
   static const designWidth = 375.0;
 

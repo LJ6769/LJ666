@@ -1,3 +1,4 @@
+// 主播/作者信息胶囊（Live 卡、帖子叠层共用）。
 import 'package:flutter/material.dart';
 import 'package:hilmi/utils/user_handle.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';

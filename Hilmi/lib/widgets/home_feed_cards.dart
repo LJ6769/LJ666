@@ -1,10 +1,17 @@
+// 首页 Live 卡与 Tipsy Bar 卡及尺寸计算常量。
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../core/auth_service.dart';
+import '../models/direct_chat_peer.dart';
 import '../models/home_models.dart';
+import '../utils/open_direct_chat.dart';
+import '../utils/open_live_about_sheet.dart';
 import '../utils/open_live_room.dart';
+import '../utils/open_login_screen.dart';
 import '../utils/open_star_profile.dart';
+import 'circle/circle_assets.dart';
 import 'common/cached_media_image.dart';
 import 'follow/follow_action_button.dart';
 import 'host_info_bar.dart';
@@ -20,6 +27,9 @@ const double _liveTitlePaddingRight = 10.0;
 const double _liveTitlePaddingBottom = 10.0;
 const double _liveHostRowPaddingLeft = 20.0;
 const double _liveHostRowPaddingRight = 24.0;
+
+/// Live 卡背景切图（圆角米白底 + 黑框）。
+const String _liveCardBgAsset = 'assets/home/card_wide.png';
 
 /// 横向卡片占屏宽比例（越大越宽）。
 const double _liveCardWidthFraction = 0.88;
@@ -54,17 +64,42 @@ double liveCardHeightForScreenWidth(double screenWidth) {
   return liveCardHeightForCardWidth(screenWidth * _liveCardWidthFraction);
 }
 
+Future<void> openLiveHostChat(BuildContext context, LiveRoom room) async {
+  final hostId = room.hostId?.trim() ?? '';
+  if (hostId.isEmpty) return;
+
+  if (!AuthService.isLoggedIn) {
+    await openLoginScreen(context);
+    return;
+  }
+
+  final name = room.hostName?.trim();
+  await openDirectChat(
+    context,
+    peer: DirectChatPeer(
+      id: hostId,
+      name: name != null && name.isNotEmpty ? name : 'User',
+      email: room.hostEmail,
+      avatarUrl: room.hostAvatarUrl,
+    ),
+  );
+}
+
 class HomeLiveRoomCard extends StatelessWidget {
   const HomeLiveRoomCard({
     super.key,
     required this.room,
     this.fullWidth = false,
+    this.onChatTap,
+    this.onMoreTap,
   });
 
   final LiveRoom room;
 
   /// 列表页全宽卡片（左右各 20 边距由外层控制）。
   final bool fullWidth;
+  final VoidCallback? onChatTap;
+  final VoidCallback? onMoreTap;
 
   @override
   Widget build(BuildContext context) {
@@ -82,115 +117,164 @@ class HomeLiveRoomCard extends StatelessWidget {
       child: SizedBox(
         width: cardWidth,
         height: cardHeight,
-        child: GestureDetector(
-          onTap: () => openLiveRoom(context, room),
-          child: HomeBorderedCard(
-            child: Stack(
-              clipBehavior: Clip.hardEdge,
-              children: [
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: coverHeight,
-                  child: HomeCardImageFrame(
-                    padding: const EdgeInsets.fromLTRB(
-                      homeCardMediaInset,
-                      homeCardMediaInset,
-                      homeCardMediaInset,
-                      0,
-                    ),
-                    borderRadius: homeCardMediaBorderRadius,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        HomeImagePlaceholder(
-                          imageUrl: room.coverUrl,
-                          icon: Icons.videocam_outlined,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(homeCardRadius),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () => openLiveRoom(context, room),
+                  behavior: HitTestBehavior.opaque,
+                  child: Stack(
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      Positioned.fill(
+                        child: Image.asset(
+                          _liveCardBgAsset,
+                          fit: BoxFit.fill,
                         ),
-                        Positioned(
-                          left: 8,
-                          top: 8,
-                          child: Image.asset(
-                            'assets/home/live_badge.png',
-                            height: 28,
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: coverHeight,
+                        child: HomeCardImageFrame(
+                          padding: const EdgeInsets.fromLTRB(
+                            homeCardMediaInset,
+                            homeCardMediaInset,
+                            homeCardMediaInset,
+                            0,
+                          ),
+                          borderRadius: homeCardMediaBorderRadius,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              HomeImagePlaceholder(
+                                imageUrl: room.coverUrl,
+                                icon: Icons.videocam_outlined,
+                              ),
+                              Positioned(
+                                left: 8,
+                                top: 8,
+                                child: Image.asset(
+                                  'assets/home/live_badge.png',
+                                  height: 28,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: _liveHostRowPaddingLeft,
-                  right: _liveHostRowPaddingRight,
-                  top: coverHeight - _liveOverlayHalfBleed,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      HostInfoBar(
-                        width: HostInfoBar.compactWidth,
-                        avatarUrl: room.hostAvatarUrl,
-                        name: room.hostName ?? 'Host Name',
-                        email: room.hostEmail,
-                        userId: room.hostId,
-                        fallbackHandle: room.hostHandle,
-                        onAvatarTap: room.hostId == null ||
-                                room.hostId!.trim().isEmpty
-                            ? null
-                            : () => openStarProfileForUser(
-                                  context,
-                                  userId: room.hostId!,
-                                  name: room.hostName,
-                                  email: room.hostEmail,
-                                  imageUrl: room.hostAvatarUrl,
-                                ),
-                        trailing: FollowActionButton(
-                          userId: room.hostId,
-                          addAsset: 'assets/home/btn_add.png',
+                      ),
+                      Positioned(
+                        left: _liveTitlePaddingLeft,
+                        bottom: _liveTitlePaddingBottom,
+                        width: cardWidth -
+                            _liveTitlePaddingLeft -
+                            _liveTitlePaddingRight -
+                            2 * homeBorderWidth,
+                        child: Text(
+                          room.title ?? 'Live stream title placeholder...',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                            height: 1.3,
+                          ),
                         ),
-                      ),
-                      const Spacer(),
-                      Image.asset(
-                        'assets/home/btn_chat.png',
-                        width: 40,
-                        height: 40,
-                      ),
-                      const SizedBox(width: 8),
-                      Image.asset(
-                        'assets/home/btn_menu.png',
-                        width: 40,
-                        height: 40,
                       ),
                     ],
                   ),
                 ),
-                Positioned(
-                  left: _liveTitlePaddingLeft,
-                  bottom: _liveTitlePaddingBottom,
-                  width: cardWidth -
-                      _liveTitlePaddingLeft -
-                      _liveTitlePaddingRight -
-                      2 * homeBorderWidth,
-                  child: Text(
-                    room.title ?? 'Live stream title placeholder...',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                      height: 1.3,
+              ),
+              Positioned(
+                left: _liveHostRowPaddingLeft,
+                right: _liveHostRowPaddingRight,
+                top: coverHeight - _liveOverlayHalfBleed,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    HostInfoBar(
+                      width: HostInfoBar.compactWidth,
+                      avatarUrl: room.hostAvatarUrl,
+                      name: room.hostName ?? 'Host Name',
+                      email: room.hostEmail,
+                      userId: room.hostId,
+                      fallbackHandle: room.hostHandle,
+                      onAvatarTap: room.hostId == null ||
+                              room.hostId!.trim().isEmpty
+                          ? null
+                          : () => openStarProfileForUser(
+                                context,
+                                userId: room.hostId!,
+                                name: room.hostName,
+                                email: room.hostEmail,
+                                imageUrl: room.hostAvatarUrl,
+                              ),
+                      trailing: FollowActionButton(
+                        userId: room.hostId,
+                        addAsset: 'assets/home/btn_add.png',
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    _LiveCardIconButton(
+                      asset: 'assets/home/btn_chat.png',
+                      onTap: onChatTap ??
+                          () => openLiveHostChat(context, room),
+                    ),
+                    const SizedBox(width: 8),
+                    _LiveCardIconButton(
+                      asset: 'assets/home/btn_menu.png',
+                      onTap: onMoreTap ??
+                          () => openLiveAboutSheet(context, room),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 }
+
+class _LiveCardIconButton extends StatelessWidget {
+  const _LiveCardIconButton({
+    required this.asset,
+    this.onTap,
+  });
+
+  final String asset;
+  final VoidCallback? onTap;
+
+  static const _size = 40.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap ?? () {},
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: Image.asset(
+          asset,
+          width: _size,
+          height: _size,
+          fit: BoxFit.contain,
+        ),
+      ),
+    );
+  }
+}
+
+/// Tipsy Bar 卡背景切图（圆角米白底 + 黑框）。
+const String _tipsyCardBgAsset = 'assets/home/card_tipsy.png';
 
 /// Tipsy Bar 卡片高度（不含照片上下溢出部分）。
 const double tipsyBarCardHeight = 146;
@@ -308,10 +392,18 @@ class HomeTipsyBarCard extends StatelessWidget {
               left: 0,
               right: 0,
               height: tipsyBarCardHeight,
-              child: HomeBorderedCard(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(homeCardRadius),
+                clipBehavior: Clip.antiAlias,
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
+                    Positioned.fill(
+                      child: Image.asset(
+                        _tipsyCardBgAsset,
+                        fit: BoxFit.fill,
+                      ),
+                    ),
                     Positioned.fill(
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(
@@ -542,6 +634,23 @@ class _ParticipantAvatarCircle extends StatelessWidget {
                 color: Color(0xFFB8B2A8),
               ),
       ),
+    );
+  }
+}
+
+/// 首页 Live / Tipsy 无数据时居中鸡尾酒图标（与朋友圈空态一致）。
+class HomeFeedEmptyPlaceholder extends StatelessWidget {
+  const HomeFeedEmptyPlaceholder({super.key});
+
+  static const _iconSize = 72.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      CircleAssets.icEmptyFeed,
+      width: _iconSize,
+      height: _iconSize,
+      fit: BoxFit.contain,
     );
   }
 }

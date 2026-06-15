@@ -1,3 +1,4 @@
+// 未登录观众随机身份（从 User 表抽样，会话内固定）。
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';

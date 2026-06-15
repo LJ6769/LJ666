@@ -1,4 +1,6 @@
+// 导航进入 Tipsy Bar 聊天室。
 import 'package:flutter/material.dart';
+import 'package:hilmi/core/block_service.dart';
 import 'package:hilmi/models/home_models.dart';
 import 'package:hilmi/screens/tipsy_bar_chat_room_screen.dart';
 
@@ -10,6 +12,10 @@ Future<bool> openTipsyBarChatRoom(
   required TipsyBarRoom room,
   bool openAboutRoomOnEnter = false,
 }) async {
+  if (BlockService.tipsyRoomInvolvesBlockedUser(room)) {
+    return false;
+  }
+
   final deleted = await Navigator.of(context).push<bool>(
     MaterialPageRoute<bool>(
       builder: (_) => TipsyBarChatRoomScreen(

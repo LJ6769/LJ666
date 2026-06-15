@@ -1,18 +1,15 @@
+// 朋友圈帖子详情：帖文区 + 评论区 + 输入栏。
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/circle_post_detail_controller.dart';
 import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/block_service.dart';
-import 'package:hilmi/core/follow_service.dart';
-import 'package:hilmi/core/like_service.dart';
-import 'package:hilmi/core/profile_refresh_signal.dart';
-import 'package:hilmi/utils/open_login_screen.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/data/circle_repository.dart';
 import 'package:hilmi/models/circle_comment.dart';
 import 'package:hilmi/models/circle_post.dart';
 import 'package:hilmi/utils/keyboard_dismiss.dart';
-import 'package:hilmi/utils/open_circle_post.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
 import 'package:hilmi/widgets/circle/circle_post_card.dart';
-import 'package:hilmi/widgets/circle/circle_post_more_sheet.dart';
 /// 详情页：上方帖子区与下方评论区 6:3。
 const _detailPostAreaFlex = 6;
 const _detailCommentsAreaFlex = 3;
@@ -32,7 +29,7 @@ double get _detailCaptionBodyHeight =>
 const _detailCommentsBackground = Color(0xFFFDF9ED);
 
 /// 朋友圈帖子详情（对齐设计稿：帖子 + 时间 + 评论 + 底部输入）。
-class CirclePostDetailScreen extends StatefulWidget {
+class CirclePostDetailScreen extends StatelessWidget {
   const CirclePostDetailScreen({
     super.key,
     required this.post,
@@ -47,194 +44,30 @@ class CirclePostDetailScreen extends StatefulWidget {
   final CircleRepository repository;
 
   @override
-  State<CirclePostDetailScreen> createState() => _CirclePostDetailScreenState();
+  Widget build(BuildContext context) {
+    return GetxScreen<CirclePostDetailController>(
+      create: () => CirclePostDetailController(
+        post: post,
+        initialFollowed: initialFollowed,
+        initialLiked: initialLiked,
+        repository: repository,
+      ),
+      builder: (c) => _CirclePostDetailBody(controller: c),
+    );
+  }
 }
 
-class _CirclePostDetailScreenState extends State<CirclePostDetailScreen> {
-  late bool _isFollowed;
-  late bool _isLiked;
-  List<CircleComment> _comments = [];
-  bool _loadingComments = true;
-  bool _sendingComment = false;
-  final _commentController = TextEditingController();
-  final _commentScrollController = ScrollController();
+class _CirclePostDetailBody extends StatelessWidget {
+  const _CirclePostDetailBody({required this.controller});
 
-  @override
-  void initState() {
-    super.initState();
-    _isFollowed = widget.initialFollowed;
-    _isLiked = widget.initialLiked;
-    _loadComments();
-    _prefetchVideoSignature();
-  }
-
-  void _prefetchVideoSignature() {
-    for (final item in widget.post.media) {
-      if (item.isVideo && item.videoPath != null && item.videoPath!.isNotEmpty) {
-        widget.repository.prefetchVideoSignature(item.videoPath);
-        break;
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _commentScrollController.dispose();
-    _commentController.dispose();
-    super.dispose();
-  }
-
-  void _scrollCommentsToEnd({bool animated = true}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_commentScrollController.hasClients) return;
-      final pos = _commentScrollController.position;
-      final target = pos.maxScrollExtent;
-      if (animated) {
-        _commentScrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      } else {
-        _commentScrollController.jumpTo(target);
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_commentScrollController.hasClients) return;
-        final p = _commentScrollController.position;
-        if (p.pixels < p.maxScrollExtent - 2) {
-          _commentScrollController.jumpTo(p.maxScrollExtent);
-        }
-      });
-    });
-  }
-
-  Future<void> _loadComments() async {
-    final comments = await widget.repository.fetchComments(widget.post.id);
-    if (!mounted) return;
-    setState(() {
-      _comments = comments
-          .where((c) => !BlockService.isBlocked(c.authorId))
-          .toList();
-      _loadingComments = false;
-    });
-    if (_comments.isNotEmpty) {
-      _scrollCommentsToEnd(animated: false);
-    }
-  }
-
-  void _popWithResult({bool deleted = false}) {
-    Navigator.of(context).pop(
-      CirclePostDetailResult(
-        isFollowed: _isFollowed,
-        isLiked: _isLiked,
-        deleted: deleted,
-      ),
-    );
-  }
-
-  Future<void> _onFollowTap() async {
-    if (!await ensureLoggedIn(context, loginHint: 'Please sign in to follow')) {
-      return;
-    }
-    if (!mounted) return;
-    try {
-      final following = await FollowService.toggle(widget.post.authorId);
-      if (!mounted) return;
-      setState(() => _isFollowed = following);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onLikeTap() async {
-    if (!AuthService.isLoggedIn) {
-      await openLoginScreen(context);
-      if (!mounted || !AuthService.isLoggedIn) return;
-      setState(() => _isLiked = LikeService.isLiked(widget.post.id));
-      return;
-    }
-    try {
-      final liked = await LikeService.toggle(widget.post.id);
-      if (!mounted) return;
-      setState(() => _isLiked = liked);
-      ProfileRefreshSignal.notify();
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onMoreTap() async {
-    final result = await CirclePostMoreSheet.show(
-      context,
-      post: widget.post,
-      repository: widget.repository,
-    );
-    if (!mounted || result == null) return;
-    if (result == CirclePostMoreResult.deleted) {
-      _popWithResult(deleted: true);
-      return;
-    }
-    if (result == CirclePostMoreResult.blacklisted) {
-      Navigator.of(context).pop();
-    }
-  }
-
-  Future<void> _onSendComment() async {
-    final text = _commentController.text.trim();
-    if (text.isEmpty || _sendingComment) return;
-
-    if (!await ensureLoggedIn(context, loginHint: 'Please sign in to comment')) {
-      return;
-    }
-    if (!mounted) return;
-
-    setState(() => _sendingComment = true);
-    try {
-      final comment = await widget.repository.sendComment(
-        postId: widget.post.id,
-        content: text,
-      );
-      if (!mounted) return;
-      _commentController.clear();
-      dismissKeyboard(context);
-      setState(() {
-        _sendingComment = false;
-        if (!BlockService.isBlocked(comment.authorId)) {
-          _comments = [..._comments, comment];
-        }
-      });
-      _scrollCommentsToEnd();
-    } catch (error) {
-      debugPrint('[CirclePostDetailScreen] send comment: $error');
-      if (!mounted) return;
-      setState(() => _sendingComment = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not send comment: $error'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
+  final CirclePostDetailController controller;
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _popWithResult();
+        if (!didPop) controller.popWithResult(context);
       },
       child: Scaffold(
         backgroundColor: _detailCommentsBackground,
@@ -250,16 +83,22 @@ class _CirclePostDetailScreenState extends State<CirclePostDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _DetailTopBar(onBack: _popWithResult),
+                      _DetailTopBar(
+                        onBack: () => controller.popWithResult(context),
+                      ),
                       Expanded(
-                        child: _PostSection(
-                          post: widget.post,
-                          isFollowed: _isFollowed,
-                          isLiked: _isLiked,
-                          onFollowTap: _onFollowTap,
-                          onLikeTap: _onLikeTap,
-                          onMoreTap: _onMoreTap,
-                          resolveVideoUrl: widget.repository.resolveVideoUrl,
+                        child: Obx(
+                          () => _PostSection(
+                            post: controller.post,
+                            isFollowed: controller.isFollowed.value,
+                            isLiked: controller.isLiked.value,
+                            onFollowTap: () =>
+                                controller.onFollowTap(context),
+                            onLikeTap: () => controller.onLikeTap(context),
+                            onMoreTap: () => controller.onMoreTap(context),
+                            resolveVideoUrl:
+                                controller.repository.resolveVideoUrl,
+                          ),
                         ),
                       ),
                     ],
@@ -273,13 +112,17 @@ class _CirclePostDetailScreenState extends State<CirclePostDetailScreen> {
             ),
             Expanded(
               flex: _detailCommentsAreaFlex,
-              child: _CommentsPanel(
-                loading: _loadingComments,
-                comments: _comments,
-                scrollController: _commentScrollController,
-                commentController: _commentController,
-                sending: _sendingComment,
-                onSend: _onSendComment,
+              child: Obx(
+                () => _CommentsPanel(
+                  loading: controller.loadingComments.value,
+                  comments: controller.comments.toList(),
+                  scrollController: controller.commentScrollController,
+                  commentController: controller.commentController,
+                  sending: controller.sendingComment.value,
+                  onSend: () => controller.onSendComment(context),
+                  onCommentTap: (comment) =>
+                      controller.onCommentTap(context, comment),
+                ),
               ),
             ),
           ],
@@ -398,6 +241,7 @@ class _CommentsPanel extends StatelessWidget {
     required this.commentController,
     required this.sending,
     required this.onSend,
+    required this.onCommentTap,
   });
 
   final bool loading;
@@ -406,6 +250,7 @@ class _CommentsPanel extends StatelessWidget {
   final TextEditingController commentController;
   final bool sending;
   final VoidCallback onSend;
+  final void Function(CircleComment comment) onCommentTap;
 
   @override
   Widget build(BuildContext context) {
@@ -434,6 +279,7 @@ class _CommentsPanel extends StatelessWidget {
                         loading: loading,
                         comments: comments,
                         scrollController: scrollController,
+                        onCommentTap: onCommentTap,
                       ),
                     ),
                     _CommentInputBar(
@@ -496,11 +342,13 @@ class _CommentsSection extends StatelessWidget {
     required this.loading,
     required this.comments,
     required this.scrollController,
+    required this.onCommentTap,
   });
 
   final bool loading;
   final List<CircleComment> comments;
   final ScrollController scrollController;
+  final void Function(CircleComment comment) onCommentTap;
 
   @override
   Widget build(BuildContext context) {
@@ -533,15 +381,22 @@ class _CommentsSection extends StatelessWidget {
       padding: EdgeInsets.zero,
       itemCount: comments.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) => _CommentTile(comment: comments[index]),
+      itemBuilder: (context, index) => _CommentTile(
+        comment: comments[index],
+        onTap: () => onCommentTap(comments[index]),
+      ),
     );
   }
 }
 
 class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment});
+  const _CommentTile({
+    required this.comment,
+    required this.onTap,
+  });
 
   final CircleComment comment;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -549,7 +404,10 @@ class _CommentTile extends StatelessWidget {
         ? comment.authorName.trim()
         : 'Guest';
 
-    return RichText(
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: RichText(
       text: TextSpan(
         style: const TextStyle(fontSize: 14, height: 1.45),
         children: [
@@ -569,6 +427,7 @@ class _CommentTile extends StatelessWidget {
           ),
         ],
       ),
+    ),
     );
   }
 }

@@ -3,6 +3,7 @@ abstract final class TipsyBarChatAssets {
   static const _base = 'assets/tipsy/bar_room';
 
   static const bg = '$_base/bg.png';
+  static const bgBottom = '$_base/bg_bottom.png';
   static const btnBack = '$_base/btn_back.png';
   static const btnMore = '$_base/btn_more.png';
   static const btnSound = '$_base/btn_sound.png';

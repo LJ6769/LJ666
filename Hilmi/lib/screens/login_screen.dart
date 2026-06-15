@@ -1,134 +1,42 @@
+// 登录页：邮箱密码与 Apple 登录入口。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/constants/legal_documents.dart';
-import 'package:hilmi/core/auth_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:hilmi/core/eula_service.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/login_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/utils/open_signup_screen.dart';
 import 'package:hilmi/widgets/auth/auth_legal_footer.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
-import 'package:hilmi/widgets/auth/legal_agreement_sheet.dart';
-import 'package:hilmi/widgets/auth/login_assets.dart';
-import 'package:hilmi/utils/apple_sign_in_flow.dart';
-import 'package:hilmi/utils/auth_error_message.dart';
 import 'package:hilmi/utils/keyboard_dismiss.dart';
+import 'package:hilmi/widgets/auth/login_assets.dart';
 import 'package:hilmi/widgets/auth/login_layout.dart';
 
 /// 登录页（对齐设计稿整屏示例）。
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
   static const _cream = Color(0xFFFEFAEF);
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _submitting = false;
 
   double _s(BuildContext context) =>
       MediaQuery.sizeOf(context).width / LoginLayout.designWidth;
 
   @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return GetxScreen<LoginController>(
+      create: () => LoginController(),
+      builder: (c) => _LoginBody(c: c, scaleOf: _s),
+    );
   }
+}
 
-  List<String> _missingFieldLabels() {
-    final missing = <String>[];
-    if (_emailController.text.trim().isEmpty) missing.add('Email');
-    if (_passwordController.text.isEmpty) missing.add('Password');
-    return missing;
-  }
+class _LoginBody extends StatelessWidget {
+  const _LoginBody({required this.c, required this.scaleOf});
 
-  Future<void> _showEmptyFieldsDialog(List<String> fields) {
-    final message = fields.length == 1
-        ? 'Please enter ${fields.first}'
-        : 'Please enter ${fields.join(', ')}';
-    return showAuthNoticeDialog(context, message: message);
-  }
-
-  Future<void> _onAppleSignIn() async {
-    if (_submitting) return;
-    dismissKeyboard(context);
-
-    if (!isAppleSignInSupported) {
-      await showAuthNoticeDialog(
-        context,
-        message: 'Sign in with Apple is only available on iPhone, iPad, and Mac.',
-      );
-      return;
-    }
-
-    setState(() => _submitting = true);
-    try {
-      final ok = await runAppleSignInFlow(context);
-      if (!mounted || !ok) return;
-      Navigator.of(context).pop(true);
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  Future<void> _onSignIn() async {
-    if (_submitting) return;
-    dismissKeyboard(context);
-
-    final missing = _missingFieldLabels();
-    if (missing.isNotEmpty) {
-      await _showEmptyFieldsDialog(missing);
-      return;
-    }
-
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    setState(() => _submitting = true);
-
-    if (!mounted) return;
-    if (!await EulaService.hasAcceptedLogin(email: email)) {
-      if (!mounted) return;
-      final agreedEula = await LegalAgreementSheet.show(
-        context,
-        title: 'EULA',
-        content: LegalDocuments.userAgreement,
-      );
-      if (!agreedEula || !mounted) {
-        if (mounted) setState(() => _submitting = false);
-        return;
-      }
-    }
-
-    if (!mounted) {
-      setState(() => _submitting = false);
-      return;
-    }
-    try {
-      await AuthService.signInWithEmail(email: email, password: password);
-      if (!mounted) return;
-      await EulaService.recordLoginAcceptance();
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } on AuthException catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(context, message: messageFromAuthError(error));
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(context, message: messageFromAuthError(error));
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
+  final LoginController c;
+  final double Function(BuildContext context) scaleOf;
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
+    final s = scaleOf(context);
     final topInset = MediaQuery.paddingOf(context).top;
     final safeBottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
@@ -206,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   _AuthTextField(
                                     scale: s,
                                     height: LoginLayout.fieldH * s,
-                                    controller: _emailController,
+                                    controller: c.emailController,
                                     hintText: 'Your Email',
                                     keyboardType: TextInputType.emailAddress,
                                     textInputAction: TextInputAction.next,
@@ -218,30 +126,30 @@ class _LoginScreenState extends State<LoginScreen> {
                                     asset: LoginAssets.labelPassword,
                                   ),
                                   SizedBox(height: 8 * s),
-                                  _AuthTextField(
-                                    scale: s,
-                                    height: LoginLayout.fieldH * s,
-                                    controller: _passwordController,
-                                    hintText: 'Your Password',
-                                    obscureText: _obscurePassword,
-                                    textInputAction: TextInputAction.done,
-                                    autofillHints: const [
-                                      AutofillHints.password,
-                                    ],
-                                    suffix: GestureDetector(
-                                      onTap: () => setState(
-                                        () => _obscurePassword =
-                                            !_obscurePassword,
+                                  Obx(
+                                    () => _AuthTextField(
+                                      scale: s,
+                                      height: LoginLayout.fieldH * s,
+                                      controller: c.passwordController,
+                                      hintText: 'Your Password',
+                                      obscureText: c.obscurePassword.value,
+                                      textInputAction: TextInputAction.done,
+                                      autofillHints: const [
+                                        AutofillHints.password,
+                                      ],
+                                      suffix: GestureDetector(
+                                        onTap: () => c.obscurePassword.value =
+                                            !c.obscurePassword.value,
+                                        child: Image.asset(
+                                          c.obscurePassword.value
+                                              ? LoginAssets.icEyeOff
+                                              : LoginAssets.icEye,
+                                          width: LoginLayout.eyeSize * s,
+                                          height: LoginLayout.eyeSize * s,
+                                        ),
                                       ),
-                                      child: Image.asset(
-                                        _obscurePassword
-                                            ? LoginAssets.icEyeOff
-                                            : LoginAssets.icEye,
-                                        width: LoginLayout.eyeSize * s,
-                                        height: LoginLayout.eyeSize * s,
-                                      ),
+                                      onSubmitted: (_) => c.onSignIn(context),
                                     ),
-                                    onSubmitted: (_) => _onSignIn(),
                                   ),
                                 ],
                               ),
@@ -255,61 +163,70 @@ class _LoginScreenState extends State<LoginScreen> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Expanded(
-                                      child: GestureDetector(
-                                        onTap: _submitting ? null : _onSignIn,
-                                        behavior: HitTestBehavior.opaque,
-                                        child: Opacity(
-                                          opacity: _submitting ? 0.65 : 1,
-                                          child: SizedBox(
-                                            height: LoginLayout.signInH * s,
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                Positioned.fill(
-                                                  child: Image.asset(
-                                                    LoginAssets.btnSignIn,
-                                                    fit: BoxFit.fill,
-                                                  ),
+                                Obx(
+                                  () {
+                                    final submitting = c.submitting.value;
+                                    return Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: submitting
+                                                ? null
+                                                : () => c.onSignIn(context),
+                                            behavior: HitTestBehavior.opaque,
+                                            child: Opacity(
+                                              opacity: submitting ? 0.65 : 1,
+                                              child: SizedBox(
+                                                height: LoginLayout.signInH * s,
+                                                child: Stack(
+                                                  alignment: Alignment.center,
+                                                  children: [
+                                                    Positioned.fill(
+                                                      child: Image.asset(
+                                                        LoginAssets.btnSignIn,
+                                                        fit: BoxFit.fill,
+                                                      ),
+                                                    ),
+                                                    if (submitting)
+                                                      SizedBox(
+                                                        width: 22 * s,
+                                                        height: 22 * s,
+                                                        child: const CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: Colors.white,
+                                                        ),
+                                                      )
+                                                    else
+                                                      Text(
+                                                        'Sign in',
+                                                        style: TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 16 * s,
+                                                          fontWeight: FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
-                                                if (_submitting)
-                                                  SizedBox(
-                                                    width: 22 * s,
-                                                    height: 22 * s,
-                                                    child: const CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: Colors.white,
-                                                    ),
-                                                  )
-                                                else
-                                                  Text(
-                                                    'Sign in',
-                                                    style: TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 16 * s,
-                                                      fontWeight: FontWeight.w800,
-                                                    ),
-                                                  ),
-                                              ],
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ),
-                                    SizedBox(width: 10 * s),
-                                    GestureDetector(
-                                      onTap: _submitting ? null : _onAppleSignIn,
-                                      child: Image.asset(
-                                        LoginAssets.btnApple,
-                                        width: LoginLayout.appleW * s,
-                                        height: LoginLayout.appleH * s,
-                                        fit: BoxFit.contain,
-                                      ),
-                                    ),
-                                  ],
+                                        SizedBox(width: 10 * s),
+                                        GestureDetector(
+                                          onTap: submitting
+                                              ? null
+                                              : () => c.onAppleSignIn(context),
+                                          child: Image.asset(
+                                            LoginAssets.btnApple,
+                                            width: LoginLayout.appleW * s,
+                                            height: LoginLayout.appleH * s,
+                                            fit: BoxFit.contain,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
                                 SizedBox(
                                   height: LoginLayout.signInToLegalGap * s,

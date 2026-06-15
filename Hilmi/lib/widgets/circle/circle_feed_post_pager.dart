@@ -1,3 +1,4 @@
+// 朋友圈横向翻页列表、空态与下拉刷新。
 import 'package:flutter/material.dart';
 import 'package:hilmi/models/circle_post.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
@@ -295,15 +296,23 @@ class _CircleFeedPullToRefreshState extends State<CircleFeedPullToRefresh> {
     }
   }
 
-  void _onPointerEnd() {
-    if (!widget.enabled || _refreshTriggered) {
+  Future<void> _onPointerEnd() async {
+    if (!widget.enabled) {
+      _resetPull();
+      return;
+    }
+    if (_refreshTriggered) {
       _resetPull();
       return;
     }
 
     if (_pullExtent >= CircleFeedPullToRefresh.triggerDistance) {
       _refreshTriggered = true;
-      widget.onRefresh();
+      try {
+        await widget.onRefresh();
+      } finally {
+        if (mounted) _resetPull();
+      }
     } else {
       _resetPull();
     }

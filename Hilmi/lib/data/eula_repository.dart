@@ -1,3 +1,4 @@
+// EULA 同意时间戳写入（注册/登录字段）。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/config/config.dart';

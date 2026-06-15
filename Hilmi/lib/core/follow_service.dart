@@ -1,3 +1,4 @@
+// 当前用户关注列表内存态，与 following_ids 同步。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/data/follow_repository.dart';
@@ -22,7 +23,17 @@ abstract final class FollowService {
       reset();
       return;
     }
-    followedIds.value = profile.followingIds.toSet();
+    final next = profile.followingIds.toSet();
+    if (_setEquals(followedIds.value, next)) return;
+    followedIds.value = next;
+  }
+
+  static bool _setEquals(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final id in a) {
+      if (!b.contains(id)) return false;
+    }
+    return true;
   }
 
   static Future<void> refreshFromServer() async {
@@ -36,12 +47,32 @@ abstract final class FollowService {
 
   /// 切换关注；返回切换后是否已关注。
   static Future<bool> toggle(String targetUserId) async {
-    final result = await _repository.toggleFollow(targetUserId);
-    if (result == null) {
-      throw StateError('Follow update failed.');
+    final id = targetUserId.trim();
+    if (id.isEmpty) {
+      throw ArgumentError.value(targetUserId, 'targetUserId', 'must not be empty');
     }
-    followedIds.value = result.followingIds.toSet();
-    return result.isFollowing;
+
+    final previous = Set<String>.from(followedIds.value);
+    final optimistic = Set<String>.from(previous);
+    if (optimistic.contains(id)) {
+      optimistic.remove(id);
+    } else {
+      optimistic.add(id);
+    }
+    followedIds.value = optimistic;
+
+    try {
+      final result = await _repository.toggleFollow(id);
+      if (result == null) {
+        followedIds.value = previous;
+        throw StateError('Follow update failed.');
+      }
+      followedIds.value = result.followingIds.toSet();
+      return result.isFollowing;
+    } catch (error) {
+      followedIds.value = previous;
+      rethrow;
+    }
   }
 
   static Future<List<FollowUser>> loadFollowingUsers() async {

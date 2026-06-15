@@ -1,3 +1,4 @@
+// 明星/他人公开资料页数据模型。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 明星 / 用户公开资料（个人中心页）。

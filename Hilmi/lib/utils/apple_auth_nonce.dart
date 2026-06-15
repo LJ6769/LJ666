@@ -1,3 +1,4 @@
+// Apple 登录 nonce：明文给 Supabase，SHA256 给 Apple。
 import 'dart:convert';
 import 'dart:math';
 

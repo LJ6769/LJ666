@@ -1,3 +1,4 @@
+// 直播间弹幕历史、发送与 Realtime 订阅。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/auth_service.dart';
@@ -97,6 +98,31 @@ sender_id
       debugPrint('[LiveChatRepository] fetchMessageById: $error');
       debugPrint('$stack');
       return null;
+    }
+  }
+
+  /// 删除当前用户发送的弹幕（需已登录）。
+  Future<bool> deleteMessage(String messageId) async {
+    final client = AppBootstrap.client;
+    if (!AppBootstrap.isReady || client == null) return false;
+
+    final id = messageId.trim();
+    if (id.isEmpty) return false;
+
+    if (!AuthService.isLoggedIn) {
+      throw StateError('Not signed in');
+    }
+
+    try {
+      await client.rpc(
+        'delete_own_live_chat',
+        params: {'p_message_id': id},
+      );
+      return true;
+    } catch (error, stack) {
+      debugPrint('[LiveChatRepository] deleteMessage: $error');
+      debugPrint('$stack');
+      rethrow;
     }
   }
 

@@ -1,3 +1,4 @@
+// 关注/已关注图标按钮（同步 FollowService）。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/core/follow_service.dart';

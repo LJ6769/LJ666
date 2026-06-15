@@ -1,3 +1,4 @@
+// 任意用户公开资料查询（个人中心/明星页）。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/config/config.dart';

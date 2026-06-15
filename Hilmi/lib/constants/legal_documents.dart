@@ -1,3 +1,4 @@
+// 用户协议与隐私政策正文（注册前需同意）。
 import 'package:hilmi/constants/privacy_policy.dart';
 
 /// 注册前需同意的协议与隐私政策正文。

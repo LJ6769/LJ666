@@ -1,3 +1,4 @@
+// 广播通知个人中心刷新资料或帖子/点赞列表。
 import 'package:flutter/foundation.dart';
 
 /// 通知个人中心刷新；[postsOnly] 为 true 时不强制重拉资料，避免牵动朋友圈二次 reload。

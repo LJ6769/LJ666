@@ -1,3 +1,4 @@
+// 直播间观众列表（排除主播，从 User 抽样）。
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -12,8 +13,8 @@ class LiveViewersRepository {
 
   /// 随机抽取 [minCount]～[maxCount] 名观众（含种子用户）。
   Future<List<LiveViewer>> fetchRandomViewers({
-    int minCount = 5,
-    int maxCount = FeedConfig.liveViewersDefaultLimit,
+    int minCount = FeedConfig.liveViewersMinCount,
+    int maxCount = FeedConfig.liveViewersMaxCount,
     Iterable<String> excludeUserIds = const [],
   }) {
     final min = minCount.clamp(1, maxCount);

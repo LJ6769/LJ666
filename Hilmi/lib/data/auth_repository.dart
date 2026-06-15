@@ -1,3 +1,4 @@
+// 读写 public.User 表：当前登录用户资料 CRUD。
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// 读写 public."User" 表（登录用户资料）。

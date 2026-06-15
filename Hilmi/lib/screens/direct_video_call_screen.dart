@@ -1,5 +1,8 @@
+// 私信视频通话等待页（挂断返回聊天）。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hilmi/controllers/direct_video_call_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/models/direct_chat_peer.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/message/video_call_assets.dart';
@@ -13,6 +16,21 @@ class DirectVideoCallScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return GetxScreen<DirectVideoCallController>(
+      create: () => DirectVideoCallController(peer: peer),
+      builder: (c) => _DirectVideoCallBody(controller: c),
+    );
+  }
+}
+
+class _DirectVideoCallBody extends StatelessWidget {
+  const _DirectVideoCallBody({required this.controller});
+
+  final DirectVideoCallController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final peer = controller.peer;
     final s = MediaQuery.sizeOf(context).width / VideoCallLayout.designWidth;
     final bottom = MediaQuery.paddingOf(context).bottom;
 

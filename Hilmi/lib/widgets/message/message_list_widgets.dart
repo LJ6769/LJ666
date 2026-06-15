@@ -1,3 +1,4 @@
+// 消息列表头部、推荐用户、会话行与空态。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/coin_balance_bar.dart';
 import 'package:hilmi/models/message_conversation.dart';
@@ -21,7 +22,7 @@ class MessageListHeader extends StatelessWidget {
         children: [
           Image.asset(
             MessageAssets.titleMessage,
-            height: 44,
+            height: homeSectionTitleHeight,
             fit: BoxFit.contain,
             alignment: Alignment.centerLeft,
           ),
@@ -53,16 +54,20 @@ class MessageFeaturedUsersRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (users.isEmpty) return const SizedBox.shrink();
 
+    final cardScale = homeProfileStoryCardScale;
+    final gap = 12 * cardScale;
+
     return SizedBox(
-      height: MessageListLayout.featuredRowH,
+      height: HomeProfileDiscoverCard.cardHeight * cardScale,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: users.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, __) => SizedBox(width: gap),
         itemBuilder: (context, index) {
           final user = users[index];
           return HomeProfileDiscoverCard(
+            scale: cardScale,
             imageUrl: user.avatarUrl,
             onProfileTap:
                 onProfileTap == null ? null : () => onProfileTap!(user),
@@ -97,7 +102,7 @@ class MessageAllChatChip extends StatelessWidget {
   }
 }
 
-/// 单条会话：左滑露出右侧垃圾桶（仅隐藏列表项，不删聊天记录）。
+/// 单条会话：左滑露出右侧垃圾桶，点击删除会话及聊天记录。
 class MessageConversationTile extends StatefulWidget {
   const MessageConversationTile({
     super.key,
@@ -116,7 +121,7 @@ class MessageConversationTile extends StatefulWidget {
   final VoidCallback? onReveal;
   final VoidCallback? onClose;
   final VoidCallback? onTap;
-  final VoidCallback? onDelete;
+  final Future<void> Function()? onDelete;
 
   @override
   State<MessageConversationTile> createState() =>
@@ -165,11 +170,9 @@ class _MessageConversationTileState extends State<MessageConversationTile> {
     }
   }
 
-  void _onDeleteTap() {
+  Future<void> _onDeleteTap() async {
     if (_dragOffset >= 0) return;
-    widget.onDelete?.call();
-    setState(() => _dragOffset = 0);
-    widget.onClose?.call();
+    await widget.onDelete?.call();
   }
 
   void _onCardTap() {

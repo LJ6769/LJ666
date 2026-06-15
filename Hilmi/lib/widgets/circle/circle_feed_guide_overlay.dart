@@ -1,3 +1,4 @@
+// 朋友圈首次左右滑动全屏引导遮罩。
 import 'package:flutter/material.dart';
 import 'package:hilmi/constants/circle_guide_assets.dart';
 import 'package:hilmi/core/circle_guide_service.dart';

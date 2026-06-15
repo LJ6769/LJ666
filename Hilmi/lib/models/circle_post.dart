@@ -1,3 +1,4 @@
+// 朋友圈帖子与媒体项模型（Post 表）。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 朋友圈（Circle）帖子媒体项。

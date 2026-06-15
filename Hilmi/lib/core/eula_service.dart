@@ -1,3 +1,4 @@
+// EULA 同意流程封装（注册与登录分次记录）。
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/data/eula_repository.dart';

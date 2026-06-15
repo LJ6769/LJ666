@@ -1,3 +1,4 @@
+// 朋友圈发帖：上传媒体并写入 public.Post。
 import 'dart:io';
 import 'dart:math';
 

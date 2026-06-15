@@ -1,3 +1,4 @@
+// 导航打开设置页。
 import 'package:flutter/material.dart';
 import 'package:hilmi/screens/settings_screen.dart';
 

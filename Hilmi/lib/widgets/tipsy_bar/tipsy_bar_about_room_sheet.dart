@@ -1,3 +1,6 @@
+// Tipsy Bar 房间更多：删除/举报/拉黑。
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/data/tipsy_bar_chat_repository.dart';
@@ -56,9 +59,8 @@ class TipsyBarAboutRoomSheet extends StatelessWidget {
     TipsyBarChatRepository repository = const TipsyBarChatRepository(),
   }) async {
     if (AuthService.isLoggedIn && AuthService.cachedProfile == null) {
-      await AuthService.loadCurrentProfile();
+      unawaited(AuthService.loadCurrentProfile());
     }
-    if (!context.mounted) return null;
 
     final scale = MediaQuery.sizeOf(context).width / _designWidth;
     final roomTitle = title.trim().isNotEmpty ? title.trim() : 'Tipsy Bar Room';

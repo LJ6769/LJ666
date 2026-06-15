@@ -1,35 +1,24 @@
+// Tipsy Bar 语音聊天室：麦位、公屏、底部栏。
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/config/config.dart';
-import 'package:hilmi/core/app_bootstrap.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/tipsy_bar_chat_room_controller.dart';
 import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/block_service.dart';
-import 'package:hilmi/core/viewer_session.dart';
-import 'package:hilmi/data/live_viewers_repository.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/data/tipsy_bar_chat_repository.dart';
-import 'package:hilmi/models/live_viewer.dart';
 import 'package:hilmi/models/home_models.dart';
-import 'package:hilmi/models/live_gift_send_result.dart';
 import 'package:hilmi/models/tipsy_bar_chat.dart';
-import 'package:hilmi/utils/open_login_screen.dart';
-import 'package:hilmi/utils/open_star_profile.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/follow/follow_action_button.dart';
 import 'package:hilmi/widgets/host_info_bar.dart';
-import 'package:hilmi/core/foreground_media_pause.dart';
-import 'package:hilmi/services/tipsy_bar_host_audio_player.dart';
 import 'package:hilmi/widgets/live_room/live_gift_notification_banner.dart';
-import 'package:hilmi/widgets/live_room/live_gift_shop_sheet.dart';
-import 'package:hilmi/widgets/live_room/live_viewers_list_sheet.dart';
-import 'package:hilmi/widgets/tipsy_bar/tipsy_bar_about_room_sheet.dart';
 import 'package:hilmi/widgets/tipsy_bar/tipsy_bar_chat_assets.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Tipsy Bar 语音聊天室（点击卡片 Join in 进入）。
-class TipsyBarChatRoomScreen extends StatefulWidget {
+class TipsyBarChatRoomScreen extends StatelessWidget {
   const TipsyBarChatRoomScreen({
     super.key,
     required this.room,
@@ -43,490 +32,59 @@ class TipsyBarChatRoomScreen extends StatefulWidget {
 
   static const _designWidth = 375.0;
   static const _pageBackground = Color(0xFFFEFAEF);
-
-  /// 礼物横幅相对屏幕垂直居中再上移（直播间仍用正中）。
   static const _giftBannerUpOffset = 80.0;
 
   @override
-  State<TipsyBarChatRoomScreen> createState() => _TipsyBarChatRoomScreenState();
+  Widget build(BuildContext context) {
+    return GetxScreen<TipsyBarChatRoomController>(
+      create: () => TipsyBarChatRoomController(
+        room: room,
+        repository: repository,
+        openAboutRoomOnEnter: openAboutRoomOnEnter,
+      ),
+      builder: (c) => _TipsyBarChatRoomBody(controller: c),
+    );
+  }
 }
 
-class _TipsyBarChatRoomScreenState extends State<TipsyBarChatRoomScreen> {
-  TipsyBarChatRoomDetail? _detail;
-  List<TipsyBarChatMessage> _messages = [];
-  bool _loading = true;
-  bool _soundOn = true;
-  bool _joinedSeat = false;
-  bool _micOn = true;
-  final _chatController = TextEditingController();
-  final _chatScrollController = ScrollController();
-  final _hostAudio = TipsyBarHostAudioPlayer();
-  bool _pendingAboutRoom = false;
-  bool _resumeHostAudioAfterOverlay = false;
+class _TipsyBarChatRoomBody extends StatefulWidget {
+  const _TipsyBarChatRoomBody({required this.controller});
 
-  late final ForegroundMediaHandle _foregroundMediaHandle = ForegroundMediaHandle(
-    pause: () async {
-      if (!_soundOn) return;
-      _resumeHostAudioAfterOverlay = true;
-      await _hostAudio.pause();
-    },
-    resume: () async {
-      if (!_resumeHostAudioAfterOverlay || !_soundOn || !mounted) {
-        _resumeHostAudioAfterOverlay = false;
-        return;
-      }
-      _resumeHostAudioAfterOverlay = false;
-      await _playHostAudio(
-        _detail?.hostAudioUrl,
-        cacheKey: _detail?.hostAudioPath,
-      );
-    },
-  );
-  final _knownMessageIds = <String>{};
-  RealtimeChannel? _chatChannel;
-  Timer? _giftNotificationTimer;
-  String? _giftNotificationName;
-  String? _giftNotificationAvatarUrl;
-  String? _giftNotificationGiftIcon;
+  final TipsyBarChatRoomController controller;
 
-  static const _viewersRepo = LiveViewersRepository();
+  @override
+  State<_TipsyBarChatRoomBody> createState() => _TipsyBarChatRoomBodyState();
+}
 
-  /// 已进入房间、未上麦的观众（含当前用户与其它发言用户）。
-  final Map<String, LiveViewer> _roomVisitors = {};
-
-  double _s(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / TipsyBarChatRoomScreen._designWidth;
-
-  String? get _currentUserId {
-    final profileId = AuthService.cachedProfile?.id.trim();
-    if (profileId != null && profileId.isNotEmpty) return profileId;
-    final viewerId = ViewerSession.current?.id.trim();
-    if (viewerId != null && viewerId.isNotEmpty) return viewerId;
-    return null;
-  }
-
-  /// 当前用户是否为该房房主（创建者已在麦位 0，不可再 Join in）。
-  bool get _isRoomHost {
-    final hostId = _detail?.host?.userId.trim() ?? '';
-    final selfId = _currentUserId ?? '';
-    return hostId.isNotEmpty && selfId.isNotEmpty && hostId == selfId;
-  }
+class _TipsyBarChatRoomBodyState extends State<_TipsyBarChatRoomBody> {
+  Worker? _aboutWorker;
 
   @override
   void initState() {
     super.initState();
-    ForegroundMediaPause.register(_foregroundMediaHandle);
-    _pendingAboutRoom = widget.openAboutRoomOnEnter;
-    _load();
+    final c = widget.controller;
+    _aboutWorker = ever(c.pendingAboutSheet, (open) {
+      if (open != true || !mounted) return;
+      c.pendingAboutSheet.value = false;
+      unawaited(c.onMoreTap(context));
+    });
   }
 
   @override
   void dispose() {
-    ForegroundMediaPause.unregister(_foregroundMediaHandle);
-    _giftNotificationTimer?.cancel();
-    _chatChannel?.unsubscribe();
-    _hostAudio.dispose();
-    _chatController.dispose();
-    _chatScrollController.dispose();
+    _aboutWorker?.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final detail = await widget.repository.fetchRoomDetail(widget.room.id);
-    if (!mounted) return;
-    setState(() {
-      _detail = detail;
-      _loading = false;
-    });
-    if (detail != null) {
-      await _initRoomChat(detail.id);
-      await _loadViewerProfile();
-      _registerSelfAsVisitor();
-    } else {
-      setState(() => _messages = [widget.repository.communityTips()]);
-    }
-    if (!mounted) return;
-    if (_soundOn) {
-      await _playHostAudio(
-        detail?.hostAudioUrl,
-        cacheKey: detail?.hostAudioPath,
-      );
-    }
-    if (_pendingAboutRoom) {
-      _pendingAboutRoom = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(_onMoreTap());
-      });
-    }
-  }
-
-  Future<void> _initRoomChat(String roomId) async {
-    await _loadChatHistory(roomId);
-    if (!mounted) return;
-    _subscribeRoomChat(roomId);
-  }
-
-  Future<void> _loadChatHistory(String roomId) async {
-    final history = await widget.repository.fetchMessages(roomId);
-    if (!mounted) return;
-
-    final loaded = <TipsyBarChatMessage>[widget.repository.communityTips()];
-    for (final msg in history) {
-      if (msg.senderId != null && BlockService.isBlocked(msg.senderId)) {
-        continue;
-      }
-      final id = msg.id;
-      if (id.isNotEmpty) {
-        if (_knownMessageIds.contains(id)) continue;
-        _knownMessageIds.add(id);
-      }
-      loaded.add(msg);
-      _trackVisitorFromMessage(msg);
-    }
-
-    setState(() => _messages = loaded);
-    _scrollChatToEnd();
-  }
-
-  void _subscribeRoomChat(String roomId) {
-    if (!AppBootstrap.isReady || AppBootstrap.client == null) return;
-
-    _chatChannel?.unsubscribe();
-    _chatChannel = widget.repository.subscribeInserts(
-      roomId: roomId,
-      onInsert: _onRealtimeInsert,
-    );
-  }
-
-  Future<void> _onRealtimeInsert(Map<String, dynamic> record) async {
-    final id = record['id'] as String?;
-    if (id != null && _knownMessageIds.contains(id)) return;
-
-    TipsyBarChatMessage? message;
-    if (id != null) {
-      message = await widget.repository.fetchMessageById(id);
-    }
-    message ??= TipsyBarChatMessage.fromRow(
-      record,
-      currentUserId: AuthService.cachedProfile?.id,
-    );
-
-    if (!mounted) return;
-    _appendMessage(message);
-  }
-
-  void _appendMessage(TipsyBarChatMessage message) {
-    if (message.senderId != null && BlockService.isBlocked(message.senderId)) {
-      return;
-    }
-    final id = message.id;
-    if (id.isNotEmpty) {
-      if (_knownMessageIds.contains(id)) return;
-      _knownMessageIds.add(id);
-    }
-    _trackVisitorFromMessage(message);
-    setState(() => _messages = [..._messages, message]);
-    _scrollChatToEnd();
-  }
-
-  Future<void> _playHostAudio(String? url, {String? cacheKey}) async {
-    if (!mounted || url == null || url.trim().isEmpty) return;
-    await _hostAudio.playUrl(url, cacheKey: cacheKey);
-  }
-
-  Future<void> _onSoundTap() async {
-    final next = !_soundOn;
-    setState(() => _soundOn = next);
-    if (next) {
-      await _playHostAudio(
-        _detail?.hostAudioUrl,
-        cacheKey: _detail?.hostAudioPath,
-      );
-    } else {
-      await _hostAudio.pause();
-    }
-  }
-
-  void _scrollChatToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_chatScrollController.hasClients) return;
-      _chatScrollController.animateTo(
-        _chatScrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  Future<void> _onSend() async {
-    final text = _chatController.text.trim();
-    if (text.isEmpty) return;
-
-    if (!await ensureLoggedIn(context, loginHint: 'Please sign in to send messages')) {
-      return;
-    }
-    if (!mounted) return;
-
-    final roomId = _detail?.id ?? widget.room.id;
-    _chatController.clear();
-
-    try {
-      final message = await widget.repository.sendMessage(
-        roomId: roomId,
-        content: text,
-      );
-      if (!mounted) return;
-      _appendMessage(message);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onJoinSeat() async {
-    if (_isRoomHost) return;
-
-    if (!AuthService.isLoggedIn) {
-      final loggedIn = await openLoginScreen(context);
-      if (!mounted || loggedIn != true) return;
-      await AuthService.loadCurrentProfile(forceRefresh: true);
-    }
-    if (!mounted) return;
-    setState(() {
-      _joinedSeat = true;
-      _micOn = true;
-      _removeSelfFromAudience();
-    });
-  }
-
-  void _onLeaveSeat() {
-    setState(() {
-      _joinedSeat = false;
-      _micOn = true;
-      _registerSelfAsVisitor();
-    });
-  }
-
-  void _onMicTap() {
-    if (!_joinedSeat) return;
-    setState(() => _micOn = !_micOn);
-  }
-
-  Future<void> _loadViewerProfile() async {
-    if (!AuthService.isLoggedIn) return;
-    await AuthService.loadCurrentProfile();
-  }
-
-  Future<void> _onMoreTap() async {
-    final detail = _detail;
-    final roomId = detail?.id ?? widget.room.id;
-    final result = await TipsyBarAboutRoomSheet.show(
-      context,
-      roomId: roomId,
-      title: detail?.title ?? widget.room.title ?? '',
-      intro: detail?.description ?? widget.room.description,
-      hostUserId: detail?.host?.userId,
-      repository: widget.repository,
-    );
-    if (!mounted || result == null) return;
-    if (result == TipsyBarMoreResult.deleted) {
-      Navigator.of(context).pop(true);
-      return;
-    }
-    if (result == TipsyBarMoreResult.blacklisted) {
-      Navigator.of(context).pop();
-    }
-  }
-
-  Set<String> _micSeatUserIds() {
-    final ids = <String>{};
-    final hostId = _detail?.host?.userId.trim();
-    if (hostId != null && hostId.isNotEmpty) ids.add(hostId);
-    for (final member in _detail?.members ?? const []) {
-      if (member.isVacantSeat) continue;
-      final id = member.userId.trim();
-      if (id.isNotEmpty) ids.add(id);
-    }
-    if (_joinedSeat) {
-      final selfId = _currentParticipantViewer()?.id.trim();
-      if (selfId != null && selfId.isNotEmpty) ids.add(selfId);
-    }
-    return ids;
-  }
-
-  LiveViewer? _currentParticipantViewer() {
-    final profile = AuthService.cachedProfile;
-    if (profile != null) {
-      return LiveViewer(
-        id: profile.id,
-        displayName: profile.displayName,
-        avatarUrl: profile.avatarUrl,
-      );
-    }
-    final session = ViewerSession.current;
-    if (session == null) return null;
-    return LiveViewer(
-      id: session.id,
-      displayName: session.displayName,
-      avatarUrl: session.avatarUrl,
-    );
-  }
-
-  void _registerSelfAsVisitor() {
-    if (!AuthService.isLoggedIn) return;
-    final viewer = _currentParticipantViewer();
-    if (viewer == null) return;
-    if (_micSeatUserIds().contains(viewer.id)) {
-      _roomVisitors.remove(viewer.id);
-      return;
-    }
-    _roomVisitors[viewer.id] = viewer;
-  }
-
-  void _removeSelfFromAudience() {
-    final viewer = _currentParticipantViewer();
-    if (viewer == null) return;
-    _roomVisitors.remove(viewer.id);
-  }
-
-  void _trackVisitorFromMessage(TipsyBarChatMessage message) {
-    if (message.isSystem) return;
-    final id = message.senderId?.trim();
-    if (id == null || id.isEmpty) return;
-    if (BlockService.isBlocked(id)) return;
-    if (_micSeatUserIds().contains(id)) {
-      _roomVisitors.remove(id);
-      return;
-    }
-    final name = message.senderName.trim();
-    if (name.isEmpty) return;
-    _roomVisitors[id] = LiveViewer(
-      id: id,
-      displayName: name,
-      avatarUrl: message.avatarUrl,
-    );
-  }
-
-  Future<List<LiveViewer>> _buildAudienceList() async {
-    final onMic = _micSeatUserIds();
-    final self = AuthService.isLoggedIn ? _currentParticipantViewer() : null;
-    final exclude = Set<String>.from(onMic);
-    if (self != null) exclude.add(self.id);
-    if (!AuthService.isLoggedIn) {
-      final guestId = ViewerSession.current?.id.trim();
-      if (guestId != null && guestId.isNotEmpty) exclude.add(guestId);
-    }
-
-    final seeds = await _viewersRepo.fetchRandomViewers(
-      minCount: 5,
-      maxCount: 8,
-      excludeUserIds: exclude,
-    );
-
-    final merged = <String, LiveViewer>{};
-    for (final viewer in seeds) {
-      if (BlockService.isBlocked(viewer.id)) continue;
-      if (onMic.contains(viewer.id)) continue;
-      if (self != null && viewer.id == self.id) continue;
-      merged[viewer.id] = viewer;
-    }
-    for (final visitor in _roomVisitors.values) {
-      if (BlockService.isBlocked(visitor.id)) continue;
-      if (onMic.contains(visitor.id)) continue;
-      if (exclude.contains(visitor.id)) continue;
-      merged[visitor.id] = visitor;
-    }
-
-    final others = merged.values.toList(growable: false);
-    if (self != null && !BlockService.isBlocked(self.id) && !onMic.contains(self.id)) {
-      return [self, ...others.where((v) => v.id != self.id)];
-    }
-    return others;
-  }
-
-  Future<void> _onMembersTap() async {
-    if (AuthService.isLoggedIn) {
-      await AuthService.loadCurrentProfile();
-    }
-    if (!mounted) return;
-
-    final viewers = await _buildAudienceList();
-    if (!mounted) return;
-    await LiveViewersListSheet.show(
-      context,
-      streamerId: _detail?.host?.userId,
-      currentViewerId: AuthService.isLoggedIn
-          ? _currentParticipantViewer()?.id
-          : null,
-      viewers: viewers,
-    );
-  }
-
-  Future<void> _onGiftTap() async {
-    final coins = AuthService.cachedProfile?.coins ?? UserConfig.guestBalance;
-    final result = await LiveGiftShopSheet.show(
-      context,
-      initialCoinBalance: coins,
-    );
-    if (!mounted || result == null) return;
-    await _showGiftNotification(result);
-  }
-
-  String get _giftSenderDisplayName {
-    final auth = AuthService.cachedProfile?.displayName.trim();
-    if (auth != null && auth.isNotEmpty) return auth;
-    final fromNotification = _giftNotificationName?.trim();
-    if (fromNotification != null && fromNotification.isNotEmpty) {
-      return fromNotification;
-    }
-    final viewer = ViewerSession.current?.displayName.trim();
-    if (viewer != null && viewer.isNotEmpty) return viewer;
-    return 'Guest';
-  }
-
-  Future<void> _showGiftNotification(LiveGiftSendResult sent) async {
-    final hostId = _detail?.host?.userId.trim();
-    if (AuthService.isLoggedIn) {
-      await AuthService.loadCurrentProfile();
-    } else {
-      await ViewerSession.ensureLoaded(
-        excludeUserId: hostId?.isNotEmpty == true ? hostId : null,
-      );
-    }
-    if (!mounted) return;
-
-    final sender = _currentParticipantViewer();
-    final name = sender?.displayName.trim();
-    _giftNotificationTimer?.cancel();
-    setState(() {
-      _giftNotificationName =
-          (name != null && name.isNotEmpty) ? name : 'Guest';
-      _giftNotificationAvatarUrl = sender?.avatarUrl;
-      _giftNotificationGiftIcon = sent.giftIconAsset;
-    });
-    _giftNotificationTimer = Timer(const Duration(seconds: 4), () {
-      if (!mounted) return;
-      setState(() {
-        _giftNotificationName = null;
-        _giftNotificationAvatarUrl = null;
-        _giftNotificationGiftIcon = null;
-      });
-    });
-  }
+  double _s(BuildContext context) =>
+      MediaQuery.sizeOf(context).width / TipsyBarChatRoomScreen._designWidth;
 
   @override
   Widget build(BuildContext context) {
+    final c = widget.controller;
     final s = _s(context);
     final topInset = MediaQuery.viewPaddingOf(context).top;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-    final detail = _detail;
-    final host = detail?.host;
     final screenSize = MediaQuery.sizeOf(context);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -536,95 +94,132 @@ class _TipsyBarChatRoomScreenState extends State<TipsyBarChatRoomScreen> {
       ),
       child: Scaffold(
         backgroundColor: TipsyBarChatRoomScreen._pageBackground,
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: Color(0xFFD14D4D),
-                  strokeWidth: 2,
-                ),
-              )
-            : Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned.fill(
-                    child: Image.asset(
-                      TipsyBarChatAssets.bg,
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
-                    ),
+        body: Obx(
+          () => c.loading.value
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFD14D4D),
+                    strokeWidth: 2,
                   ),
-                  if (_giftNotificationGiftIcon != null)
-                    Positioned(
-                      left: 12 * s,
-                      top: (screenSize.height -
-                                  LiveGiftNotificationBanner.designHeight * s) /
-                              2 -
-                          TipsyBarChatRoomScreen._giftBannerUpOffset * s,
-                      child: LiveGiftNotificationBanner(
-                        scale: s,
-                        displayName: _giftSenderDisplayName,
-                        avatarUrl: _giftNotificationAvatarUrl,
-                        giftIconAsset: _giftNotificationGiftIcon!,
+                )
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const Positioned.fill(
+                      child: ColoredBox(
+                        color: TipsyBarChatRoomScreen._pageBackground,
                       ),
                     ),
-                  SafeArea(
-                    bottom: false,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _TipsyBarChatTopBar(
-                          scale: s,
-                          topInset: topInset,
-                          host: host,
-                          joinedSeat: _joinedSeat,
-                          micOn: _micOn,
-                          soundOn: _soundOn,
-                          onBack: () => Navigator.of(context).pop(),
-                          onMicTap: _onMicTap,
-                          onSoundTap: _onSoundTap,
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(12 * s, 4 * s, 8 * s, 0),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _TipsyBarChatMessageList(
-                                    scale: s,
-                                    messages: _messages,
-                                    scrollController: _chatScrollController,
-                                  ),
-                                ),
-                                SizedBox(width: 8 * s),
-                                _TipsyBarSeatsColumn(
-                                  scale: s,
-                                  detail: detail,
-                                  joinedSeat: _joinedSeat,
-                                  isRoomHost: _isRoomHost,
-                                  micOn: _micOn,
-                                  soundOn: _soundOn,
-                                  onJoinTap: _onJoinSeat,
-                                  onLeaveSeat: _onLeaveSeat,
-                                ),
-                              ],
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Image.asset(
+                        TipsyBarChatAssets.bgBottom,
+                        fit: BoxFit.fitWidth,
+                        alignment: Alignment.bottomCenter,
+                      ),
+                    ),
+                    SafeArea(
+                      bottom: false,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _TipsyBarChatTopBar(
+                            scale: s,
+                            topInset: topInset,
+                            host: c.detail.value?.host,
+                            joinedSeat: c.joinedSeat.value,
+                            micOn: c.micOn.value,
+                            soundOn: c.soundOn.value,
+                            onBack: () => Navigator.of(context).pop(),
+                            onMicTap: c.onMicTap,
+                            onSoundTap: c.onSoundTap,
+                            onHostAvatarTap: (host) => c.openUserProfile(
+                              context,
+                              userId: host.userId,
+                              name: host.displayName,
+                              email: host.email,
+                              imageUrl: host.avatarUrl,
                             ),
                           ),
-                        ),
-                        _TipsyBarChatBottomBar(
-                          scale: s,
-                          bottomInset: bottomInset,
-                          controller: _chatController,
-                          onSend: _onSend,
-                          onGift: _onGiftTap,
-                          onMembers: _onMembersTap,
-                          onMore: _onMoreTap,
-                        ),
-                      ],
+                          Expanded(
+                            child: Padding(
+                              padding:
+                                  EdgeInsets.fromLTRB(12 * s, 4 * s, 8 * s, 0),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: _TipsyBarChatMessageList(
+                                      scale: s,
+                                      messages: c.messages.toList(),
+                                      scrollController: c.chatScrollController,
+                                      onUserMessageTap: (m) =>
+                                          c.onChatMessageTap(context, m),
+                                      onUserAvatarTap: (m) => c.openUserProfile(
+                                        context,
+                                        userId: m.senderId ?? '',
+                                        name: m.senderName,
+                                        imageUrl: m.avatarUrl,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 8 * s),
+                                  _TipsyBarSeatsColumn(
+                                    scale: s,
+                                    detail: c.detail.value,
+                                    joinedSeat: c.joinedSeat.value,
+                                    isRoomHost: c.isRoomHost,
+                                    micOn: c.micOn.value,
+                                    soundOn: c.soundOn.value,
+                                    onJoinTap: () => c.onJoinSeat(context),
+                                    onLeaveSeat: c.onLeaveSeat,
+                                    onMemberAvatarTap: (member) =>
+                                        c.openUserProfile(
+                                      context,
+                                      userId: member.userId,
+                                      name: member.displayName,
+                                      email: member.email,
+                                      imageUrl: member.avatarUrl,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          _TipsyBarChatBottomBar(
+                            scale: s,
+                            bottomInset: bottomInset,
+                            controller: c.chatController,
+                            onSend: () => c.onSend(context),
+                            onGift: () => c.onGiftTap(context),
+                            onMembers: () => c.onMembersTap(context),
+                            onMore: () => c.onMoreTap(context),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    if (c.giftNotificationGiftIcon.value != null)
+                      Positioned(
+                        left: 12 * s,
+                        top: (screenSize.height -
+                                    LiveGiftNotificationBanner.designHeight *
+                                        s) /
+                                2 -
+                            TipsyBarChatRoomScreen._giftBannerUpOffset * s,
+                        child: IgnorePointer(
+                          child: LiveGiftNotificationBanner(
+                            scale: s,
+                            displayName: c.giftSenderDisplayName,
+                            avatarUrl: c.giftNotificationAvatarUrl.value,
+                            giftIconAsset: c.giftNotificationGiftIcon.value!,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -641,6 +236,7 @@ class _TipsyBarChatTopBar extends StatelessWidget {
     required this.onBack,
     required this.onMicTap,
     required this.onSoundTap,
+    required this.onHostAvatarTap,
   });
 
   final double scale;
@@ -652,6 +248,7 @@ class _TipsyBarChatTopBar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onMicTap;
   final VoidCallback onSoundTap;
+  final ValueChanged<TipsyBarChatMember> onHostAvatarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -682,13 +279,7 @@ class _TipsyBarChatTopBar extends StatelessWidget {
               name: hostMember.displayName,
               email: hostMember.email,
               userId: hostMember.userId,
-              onAvatarTap: () => openStarProfileForUser(
-                context,
-                userId: hostMember.userId,
-                name: hostMember.displayName,
-                email: hostMember.email,
-                imageUrl: hostMember.avatarUrl,
-              ),
+              onAvatarTap: () => onHostAvatarTap(hostMember),
               trailing: FollowActionButton(
                 userId: hostMember.userId,
                 size: 28 * s,
@@ -735,11 +326,15 @@ class _TipsyBarChatMessageList extends StatelessWidget {
     required this.scale,
     required this.messages,
     required this.scrollController,
+    this.onUserMessageTap,
+    this.onUserAvatarTap,
   });
 
   final double scale;
   final List<TipsyBarChatMessage> messages;
   final ScrollController scrollController;
+  final void Function(TipsyBarChatMessage message)? onUserMessageTap;
+  final void Function(TipsyBarChatMessage message)? onUserAvatarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -762,7 +357,14 @@ class _TipsyBarChatMessageList extends StatelessWidget {
         }
         return Padding(
           padding: EdgeInsets.only(bottom: 10 * s),
-          child: _UserMessageBubble(scale: s, message: msg),
+          child: _UserMessageBubble(
+            scale: s,
+            message: msg,
+            onTap: onUserMessageTap == null ? null : () => onUserMessageTap!(msg),
+            onAvatarTap: onUserAvatarTap == null
+                ? null
+                : () => onUserAvatarTap!(msg),
+          ),
         );
       },
     );
@@ -813,21 +415,17 @@ class _TipsBanner extends StatelessWidget {
 }
 
 class _UserMessageBubble extends StatelessWidget {
-  const _UserMessageBubble({required this.scale, required this.message});
+  const _UserMessageBubble({
+    required this.scale,
+    required this.message,
+    this.onTap,
+    this.onAvatarTap,
+  });
 
   final double scale;
   final TipsyBarChatMessage message;
-
-  void _onAvatarTap(BuildContext context) {
-    final id = message.senderId?.trim();
-    if (id == null || id.isEmpty) return;
-    openStarProfileForUser(
-      context,
-      userId: id,
-      name: message.senderName,
-      imageUrl: message.avatarUrl,
-    );
-  }
+  final VoidCallback? onTap;
+  final VoidCallback? onAvatarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -839,7 +437,7 @@ class _UserMessageBubble extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         GestureDetector(
-          onTap: canOpenProfile ? () => _onAvatarTap(context) : null,
+          onTap: canOpenProfile && onAvatarTap != null ? onAvatarTap : null,
           behavior: HitTestBehavior.opaque,
           child: ClipOval(
             child: message.avatarUrl != null && message.avatarUrl!.isNotEmpty
@@ -855,37 +453,41 @@ class _UserMessageBubble extends StatelessWidget {
         ),
         SizedBox(width: 8 * s),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                message.senderName,
-                style: TextStyle(
-                  fontSize: 13 * s,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black,
-                ),
-              ),
-              SizedBox(height: 4 * s),
-              Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 12 * s, vertical: 10 * s),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14 * s),
-                  border: Border.all(color: Colors.black, width: 2),
-                ),
-                child: Text(
-                  message.text,
+          child: GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message.senderName,
                   style: TextStyle(
                     fontSize: 13 * s,
-                    height: 1.4,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black.withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black,
                   ),
                 ),
-              ),
-            ],
+                SizedBox(height: 4 * s),
+                Container(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 12 * s, vertical: 10 * s),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14 * s),
+                    border: Border.all(color: Colors.black, width: 2),
+                  ),
+                  child: Text(
+                    message.text,
+                    style: TextStyle(
+                      fontSize: 13 * s,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -914,6 +516,7 @@ class _TipsyBarSeatsColumn extends StatelessWidget {
     required this.soundOn,
     required this.onJoinTap,
     required this.onLeaveSeat,
+    required this.onMemberAvatarTap,
   });
 
   final double scale;
@@ -924,6 +527,7 @@ class _TipsyBarSeatsColumn extends StatelessWidget {
   final bool soundOn;
   final VoidCallback onJoinTap;
   final VoidCallback onLeaveSeat;
+  final ValueChanged<TipsyBarChatMember> onMemberAvatarTap;
 
   @override
   Widget build(BuildContext context) {
@@ -976,6 +580,7 @@ class _TipsyBarSeatsColumn extends StatelessWidget {
                   i >= TipsyBarChatRoomDetail.joinSeatIndexStart,
               onJoinTap: onJoinTap,
               onLeaveSeat: onLeaveSeat,
+              onProfileTap: onMemberAvatarTap,
             ),
           ],
         ],
@@ -1000,6 +605,7 @@ class _SeatTile extends StatelessWidget {
     required this.showJoinIn,
     required this.onJoinTap,
     required this.onLeaveSeat,
+    required this.onProfileTap,
   });
 
   final double scale;
@@ -1009,6 +615,7 @@ class _SeatTile extends StatelessWidget {
   final bool showJoinIn;
   final VoidCallback onJoinTap;
   final VoidCallback onLeaveSeat;
+  final ValueChanged<TipsyBarChatMember> onProfileTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1063,15 +670,7 @@ class _SeatTile extends StatelessWidget {
         alignment: Alignment.bottomCenter,
         children: [
           GestureDetector(
-            onTap: canOpenProfile
-                ? () => openStarProfileForUser(
-                      context,
-                      userId: userId,
-                      name: member.displayName,
-                      email: member.email,
-                      imageUrl: member.avatarUrl,
-                    )
-                : null,
+            onTap: canOpenProfile ? () => onProfileTap(member) : null,
             behavior: HitTestBehavior.opaque,
             child: SizedBox(
               width: size,

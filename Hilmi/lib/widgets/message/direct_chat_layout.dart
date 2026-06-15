@@ -1,3 +1,4 @@
+// 私信聊天页布局常量。
 abstract final class DirectChatLayout {
   static const designWidth = 375.0;
 

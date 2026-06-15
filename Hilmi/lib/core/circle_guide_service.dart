@@ -1,3 +1,4 @@
+// 朋友圈首次左右滑动引导是否已完成的本地持久化。
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 朋友圈首次滑动引导完成状态。

@@ -1,3 +1,4 @@
+// 用户金币 balance 读写（public.User.coins）。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/auth_service.dart';

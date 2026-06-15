@@ -1,9 +1,12 @@
+// 私信会话列表、Message 表 header 与推荐用户。
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/auth_service.dart';
+import 'package:hilmi/core/block_service.dart';
+import 'package:hilmi/core/feed_data_cache.dart';
 import 'package:hilmi/models/direct_chat_message.dart';
 import 'package:hilmi/models/message_conversation.dart';
 import 'package:uuid/uuid.dart';
@@ -32,14 +35,121 @@ class MessageRepository {
 
   static const _uuid = Uuid();
 
-  Future<List<MessageFeaturedUser>> fetchFeaturedUsers() async {
+  Future<List<MessageFeaturedUser>> fetchFeaturedUsers({
+    Set<String> blockedIds = const {},
+    bool forceNetwork = false,
+  }) async {
+    if (!forceNetwork) {
+      final cached = FeedDataCache.messageFeaturedPool;
+      if (cached != null && cached.isNotEmpty) {
+        return pickFeaturedDisplay(
+          cached.toList(growable: false),
+          excludeIds: _featuredExcludeIds(
+            blockedIds: {...blockedIds, ...BlockService.blockedIds.value},
+          ),
+        );
+      }
+    }
+
     final pool = await _fetchFeaturedUserPool();
+    if (pool.isNotEmpty) {
+      FeedDataCache.setMessageFeaturedPool(pool);
+    }
+    return pickFeaturedDisplay(
+      pool,
+      excludeIds: _featuredExcludeIds(
+        blockedIds: {...blockedIds, ...BlockService.blockedIds.value},
+      ),
+    );
+  }
+
+  /// 下拉刷新明星卡：仅从本地池重新随机，不请求数据库。
+  static List<MessageFeaturedUser> reshuffleFeaturedFromLocalPool({
+    Set<String> blockedIds = const {},
+  }) {
+    final cached = FeedDataCache.messageFeaturedPool;
+    if (cached == null || cached.isEmpty) return const [];
+    return pickFeaturedDisplay(
+      cached.toList(growable: false),
+      excludeIds: _featuredExcludeIds(
+        blockedIds: {...blockedIds, ...BlockService.blockedIds.value},
+      ),
+    );
+  }
+
+  static Set<String> _featuredExcludeIds({Set<String> blockedIds = const {}}) {
+    final exclude = <String>{...blockedIds};
+    final myId = _currentUserId;
+    if (myId != null && myId.isNotEmpty) {
+      exclude.add(myId);
+    }
+    return exclude;
+  }
+
+  static List<MessageFeaturedUser> pickFeaturedDisplay(
+    List<MessageFeaturedUser> pool, {
+    Set<String> excludeIds = const {},
+  }) {
     if (pool.isEmpty) return pool;
-    final shuffled = List<MessageFeaturedUser>.from(pool)..shuffle(Random());
+    final eligible = excludeIds.isEmpty
+        ? pool
+        : pool
+            .where((user) => !excludeIds.contains(user.id))
+            .toList(growable: false);
+    if (eligible.isEmpty) return eligible;
+    final shuffled = List<MessageFeaturedUser>.from(eligible)..shuffle(Random());
     if (shuffled.length <= FeedConfig.messageFeaturedDisplayCount) {
       return shuffled;
     }
-    return shuffled.take(FeedConfig.messageFeaturedDisplayCount).toList();
+    return shuffled
+        .take(FeedConfig.messageFeaturedDisplayCount)
+        .toList(growable: false);
+  }
+
+  /// 拉黑后保留未拉黑卡片，不足时从本地池补位（不整批重抽）。
+  static List<MessageFeaturedUser> refillFeaturedAfterBlock({
+    required List<MessageFeaturedUser> current,
+    required List<MessageFeaturedUser> pool,
+    required Set<String> blockedIds,
+    String? myId,
+  }) {
+    final exclude = <String>{...blockedIds};
+    if (myId != null && myId.isNotEmpty) {
+      exclude.add(myId);
+    }
+
+    final kept = current
+        .where((user) => !exclude.contains(user.id))
+        .toList(growable: false);
+
+    final removedSomeone = kept.length < current.length;
+    if (removedSomeone &&
+        current.length < FeedConfig.messageFeaturedDisplayCount) {
+      return kept;
+    }
+
+    final keptIds = kept.map((user) => user.id).toSet();
+    final result = List<MessageFeaturedUser>.from(kept);
+
+    if (result.length < FeedConfig.messageFeaturedDisplayCount) {
+      final candidates = pool
+          .where(
+            (user) =>
+                !exclude.contains(user.id) && !keptIds.contains(user.id),
+          )
+          .toList(growable: false);
+      final shuffled = List<MessageFeaturedUser>.from(candidates)
+        ..shuffle(Random());
+      for (final user in shuffled) {
+        if (result.length >= FeedConfig.messageFeaturedDisplayCount) break;
+        result.add(user);
+        keptIds.add(user.id);
+      }
+    }
+
+    return result
+        .take(FeedConfig.messageFeaturedDisplayCount)
+        .toList(growable: false);
   }
 
   static String? get _currentUserId {
@@ -216,6 +326,31 @@ class MessageRepository {
       debugPrint('[MessageRepository] fetchChatMessages: $error');
       debugPrint('$stack');
       return const [];
+    }
+  }
+
+  /// 删除整段私信会话（header + 全部 chat 消息）。
+  Future<bool> deleteConversation(String conversationId) async {
+    final client = AppBootstrap.client;
+    if (!AppBootstrap.isReady || client == null) return false;
+
+    final id = conversationId.trim();
+    if (id.isEmpty) return false;
+
+    if (_currentUserId == null) {
+      throw StateError('Not signed in');
+    }
+
+    try {
+      await client.rpc(
+        'delete_direct_conversation',
+        params: {'p_conversation_id': id},
+      );
+      return true;
+    } catch (error, stack) {
+      debugPrint('[MessageRepository] deleteConversation: $error');
+      debugPrint('$stack');
+      rethrow;
     }
   }
 

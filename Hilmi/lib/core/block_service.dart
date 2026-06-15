@@ -1,3 +1,4 @@
+// 当前用户黑名单内存态，与 Supabase blocked_ids 同步。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/core/feed_data_cache.dart';
@@ -31,7 +32,17 @@ abstract final class BlockService {
       reset();
       return;
     }
-    blockedIds.value = profile.blockedIds.toSet();
+    final next = profile.blockedIds.toSet();
+    if (_setEquals(blockedIds.value, next)) return;
+    blockedIds.value = next;
+  }
+
+  static bool _setEquals(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final id in a) {
+      if (!b.contains(id)) return false;
+    }
+    return true;
   }
 
   static Future<void> refreshFromServer() async {
@@ -86,6 +97,30 @@ abstract final class BlockService {
     if (blockedIds.value.isEmpty) return rooms;
     return rooms
         .where((room) => !isBlocked(room.hostId))
+        .toList(growable: false);
+  }
+
+  static bool involvesBlockedUser({
+    String? hostUserId,
+    Iterable<String> memberUserIds = const [],
+  }) {
+    if (isBlocked(hostUserId)) return true;
+    for (final id in memberUserIds) {
+      if (isBlocked(id)) return true;
+    }
+    return false;
+  }
+
+  static bool tipsyRoomInvolvesBlockedUser(TipsyBarRoom room) =>
+      involvesBlockedUser(
+        hostUserId: room.hostUserId,
+        memberUserIds: room.participantUserIds,
+      );
+
+  static List<TipsyBarRoom> filterTipsyBarRooms(List<TipsyBarRoom> rooms) {
+    if (blockedIds.value.isEmpty) return rooms;
+    return rooms
+        .where((room) => !tipsyRoomInvolvesBlockedUser(room))
         .toList(growable: false);
   }
 }

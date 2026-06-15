@@ -1,3 +1,4 @@
+// 个人中心 My Post / My Like 胶囊切换。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/profile/profile_assets.dart';
 
@@ -12,7 +13,8 @@ class ProfileFilterTabs extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
-  static const _tabHeight = 40.0;
+  /// My Post / My Like 切图显示高度（原 40，等比放大）。
+  static const _tabHeight = 48.0;
 
   @override
   Widget build(BuildContext context) {

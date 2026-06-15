@@ -1,3 +1,4 @@
+// 设置页 Feedback 输入弹窗。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/auth/legal_layout.dart';
 import 'package:hilmi/widgets/settings/settings_assets.dart';

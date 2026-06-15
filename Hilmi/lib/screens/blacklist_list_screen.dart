@@ -1,170 +1,106 @@
+// 黑名单列表页（设置 → Blacklist）。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/block_service.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/blacklist_list_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/models/follow_user.dart';
 import 'package:hilmi/splash_page.dart';
-import 'package:hilmi/utils/auth_error_message.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
 import 'package:hilmi/widgets/auth/auth_top_bar_button.dart';
 import 'package:hilmi/widgets/blacklist/blacklist_assets.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/follow/follow_assets.dart';
 import 'package:hilmi/widgets/follow/follow_user_list_row.dart';
+import 'package:hilmi/widgets/home_feed_cards.dart';
 
 /// 黑名单列表（设置 → Blacklist）。
-class BlacklistListScreen extends StatefulWidget {
+class BlacklistListScreen extends StatelessWidget {
   const BlacklistListScreen({super.key});
-
-  static const _designWidth = 375.0;
-
-  @override
-  State<BlacklistListScreen> createState() => _BlacklistListScreenState();
-}
-
-class _BlacklistListScreenState extends State<BlacklistListScreen> {
-  List<FollowUser> _users = [];
-  bool _loading = true;
-  String? _removingUserId;
-
-  double _s(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / BlacklistListScreen._designWidth;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    if (!AuthService.isLoggedIn) {
-      if (!mounted) return;
-      setState(() {
-        _users = const [];
-        _loading = false;
-      });
-      return;
-    }
-
-    setState(() => _loading = true);
-    try {
-      final users = await BlockService.loadBlockedUsers();
-      if (!mounted) return;
-      setState(() {
-        _users = users;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _loading = false);
-      await showAuthNoticeDialog(
-        context,
-        message: messageFromAuthError(error),
-      );
-    }
-  }
-
-  Future<void> _onRemove(FollowUser user) async {
-    if (_removingUserId != null) return;
-    setState(() => _removingUserId = user.id);
-    try {
-      final stillBlocked = await BlockService.unblock(user.id);
-      if (!mounted) return;
-      if (!stillBlocked) {
-        setState(() => _users = _users.where((u) => u.id != user.id).toList());
-      }
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(
-        context,
-        message: messageFromAuthError(error),
-      );
-    } finally {
-      if (mounted) setState(() => _removingUserId = null);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
-    final topInset = MediaQuery.paddingOf(context).top;
+    return GetxScreen<BlacklistListController>(
+      create: () => BlacklistListController(),
+      builder: (c) => Obx(() {
+        final s = MediaQuery.sizeOf(context).width /
+            BlacklistListController.designWidth;
+        final topInset = MediaQuery.paddingOf(context).top;
+        final users = c.users;
+        final loading = c.loading.value;
+        final removingUserId = c.removingUserId.value;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: splashBackground,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
-      child: Scaffold(
-        backgroundColor: splashBackground,
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(height: topInset + 8 * s),
-            SizedBox(
-              height: 44 * s,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Text(
-                    'Blacklist',
-                    style: TextStyle(
-                      fontSize: 18 * s,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.black,
-                    ),
-                  ),
-                  AuthTopBarButton(
-                    top: 2 * s,
-                    left: 16 * s,
-                    size: 40 * s,
-                    asset: FollowAssets.btnBack,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 12 * s),
-            Expanded(
-              child: _loading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFD14D4D),
-                        strokeWidth: 2,
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+            systemNavigationBarColor: splashBackground,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          ),
+          child: Scaffold(
+            backgroundColor: splashBackground,
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: topInset + 8 * s),
+                SizedBox(
+                  height: 44 * s,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Text(
+                        'Blacklist',
+                        style: TextStyle(
+                          fontSize: 18 * s,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                        ),
                       ),
-                    )
-                  : _users.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No blocked users',
-                            style: TextStyle(
-                              fontSize: 15 * s,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black.withValues(alpha: 0.45),
-                            ),
+                      AuthTopBarButton(
+                        top: 2 * s,
+                        left: 16 * s,
+                        size: 40 * s,
+                        asset: FollowAssets.btnBack,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 12 * s),
+                Expanded(
+                  child: loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFFD14D4D),
+                            strokeWidth: 2,
                           ),
                         )
-                      : ListView.separated(
-                          padding:
-                              EdgeInsets.fromLTRB(20 * s, 0, 20 * s, 24 * s),
-                          itemCount: _users.length,
-                          separatorBuilder: (_, _) => SizedBox(height: 10 * s),
-                          itemBuilder: (context, index) {
-                            final user = _users[index];
-                            final busy = _removingUserId == user.id;
-                            return _BlacklistUserRow(
-                              scale: s,
-                              user: user,
-                              busy: busy,
-                              onRemove: () => _onRemove(user),
-                            );
-                          },
-                        ),
+                      : users.isEmpty
+                          ? const Center(
+                              child: HomeFeedEmptyPlaceholder(),
+                            )
+                          : ListView.separated(
+                              padding: EdgeInsets.fromLTRB(
+                                  20 * s, 0, 20 * s, 24 * s),
+                              itemCount: users.length,
+                              separatorBuilder: (_, _) =>
+                                  SizedBox(height: 10 * s),
+                              itemBuilder: (context, index) {
+                                final user = users[index];
+                                final busy = removingUserId == user.id;
+                                return _BlacklistUserRow(
+                                  scale: s,
+                                  user: user,
+                                  busy: busy,
+                                  onRemove: () => c.onRemove(context, user),
+                                );
+                              },
+                            ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }),
     );
   }
 }

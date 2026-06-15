@@ -1,21 +1,16 @@
+// 明星个人中心（Discover 明星卡进入）。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/block_service.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/star_profile_controller.dart';
 import 'package:hilmi/core/follow_service.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/core/like_service.dart';
 import 'package:hilmi/data/circle_repository.dart';
 import 'package:hilmi/data/user_public_repository.dart';
-import 'package:hilmi/models/circle_post.dart';
-import 'package:hilmi/models/direct_chat_peer.dart';
 import 'package:hilmi/models/home_models.dart';
 import 'package:hilmi/models/star_public_profile.dart';
-import 'package:hilmi/utils/open_circle_post.dart';
-import 'package:hilmi/utils/open_direct_chat.dart';
-import 'package:hilmi/utils/open_direct_video_call.dart';
-import 'package:hilmi/utils/open_login_screen.dart';
 import 'package:hilmi/utils/user_handle.dart';
-import 'package:hilmi/widgets/circle/circle_post_more_sheet.dart';
 import 'package:hilmi/widgets/circle/circle_feed_post_pager.dart';
 import 'package:hilmi/widgets/circle/circle_feed_vertical_post_list.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
@@ -23,7 +18,7 @@ import 'package:hilmi/widgets/follow/follow_action_button.dart';
 import 'package:hilmi/widgets/star_profile/star_profile_assets.dart';
 
 /// 明星个人中心（点击 Discover 明星卡进入）。
-class StarProfileScreen extends StatefulWidget {
+class StarProfileScreen extends StatelessWidget {
   const StarProfileScreen({
     super.key,
     required this.story,
@@ -35,231 +30,95 @@ class StarProfileScreen extends StatefulWidget {
   final UserPublicRepository repository;
   final CircleRepository circleRepository;
 
-  static const _designWidth = 375.0;
-
-  /// 与 [StarProfileAssets.headerBg] 边缘色一致，平铺未覆盖处 / 状态栏用。
-  static const headerBackground = Color(0xFFDAEBDC);
-
-  /// 资料区与帖子列表底色。
-  static const pageBackground = Color(0xFFEFFEF1);
-
-  @override
-  State<StarProfileScreen> createState() => _StarProfileScreenState();
-}
-
-class _StarProfileScreenState extends State<StarProfileScreen> {
-  StarPublicProfile? _profile;
-  List<CirclePost> _posts = [];
-  bool _loading = true;
-
-  double _s(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / StarProfileScreen._designWidth;
-
-  @override
-  void initState() {
-    super.initState();
-    FollowService.followedIds.addListener(_onSocialStateChanged);
-    LikeService.likedPostIds.addListener(_onSocialStateChanged);
-    _load();
-  }
-
-  @override
-  void dispose() {
-    FollowService.followedIds.removeListener(_onSocialStateChanged);
-    LikeService.likedPostIds.removeListener(_onSocialStateChanged);
-    super.dispose();
-  }
-
-  void _onSocialStateChanged() {
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _onPostFollowTap(CirclePost post) async {
-    if (!AuthService.isLoggedIn) {
-      await openLoginScreen(context);
-      return;
-    }
-    try {
-      await FollowService.toggle(post.authorId);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onPostLikeTap(CirclePost post) async {
-    if (!AuthService.isLoggedIn) {
-      await openLoginScreen(context);
-      return;
-    }
-    try {
-      await LikeService.toggle(post.id);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString()),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onPostMoreTap(CirclePost post) async {
-    final result = await CirclePostMoreSheet.show(
-      context,
-      post: post,
-      repository: widget.circleRepository,
-    );
-    if (!mounted || result != CirclePostMoreResult.deleted) return;
-    setState(() {
-      _posts = _posts.where((p) => p.id != post.id).toList();
-    });
-  }
-
-  Future<void> _load() async {
-    final results = await Future.wait<dynamic>([
-      widget.repository.fetchProfile(widget.story.id),
-      widget.circleRepository.fetchPostsByAuthorId(widget.story.id),
-    ]);
-    if (!mounted) return;
-    final posts = results[1] as List<CirclePost>;
-    setState(() {
-      _profile = results[0] as StarPublicProfile?;
-      _posts = BlockService.filterPosts(posts);
-      _loading = false;
-    });
-  }
-
-  Future<void> _openPostDetail(CirclePost post) async {
-    final result = await openCirclePostDetail(
-      context,
-      post: post,
-      isFollowed: FollowService.isFollowing(post.authorId),
-      isLiked: LikeService.isLiked(post.id),
-    );
-    if (result != null && mounted) setState(() {});
-  }
-
-  DirectChatPeer get _peer {
-    final p = _profile;
-    final name = p?.displayName ?? widget.story.name ?? 'User';
-    return DirectChatPeer(
-      id: widget.story.id,
-      name: name,
-      email: p?.email ?? widget.story.email,
-      avatarUrl: p?.avatarUrl ?? widget.story.imageUrl,
-    );
-  }
-
-  bool get _isFollowing => FollowService.isFollowing(widget.story.id);
-
-  bool get _isSelf =>
-      AuthService.cachedProfile?.id.trim() == widget.story.id.trim();
-
-  Future<void> _onChatTap() async {
-    if (!AuthService.isLoggedIn) {
-      await openLoginScreen(context);
-      return;
-    }
-    if (!mounted) return;
-    await openDirectChat(context, peer: _peer);
-  }
-
-  Future<void> _onVideoCallTap() async {
-    await openDirectVideoCall(context, peer: _peer);
-  }
-
-  Future<void> _onMoreTap() async {
-    final result = await CirclePostMoreSheet.showForUser(
-      context,
-      userId: widget.story.id,
-    );
-    if (result == CirclePostMoreResult.blacklisted && mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
-    final topInset = MediaQuery.viewPaddingOf(context).top;
-
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: StarProfileScreen.headerBackground,
-        statusBarIconBrightness: Brightness.dark,
+    return GetxScreen<StarProfileController>(
+      create: () => StarProfileController(
+        story: story,
+        repository: repository,
+        circleRepository: circleRepository,
       ),
-      child: Scaffold(
-        backgroundColor: StarProfileScreen.pageBackground,
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: Color(0xFFD14D4D),
-                  strokeWidth: 2,
-                ),
-              )
-            : CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: _HeaderSection(
-                        scale: s,
-                        topInset: topInset,
-                        isSelf: _isSelf,
-                        isFollowing: _isFollowing,
-                        onBack: () => Navigator.of(context).pop(),
-                        onMore: _onMoreTap,
-                        onFollowTap: () => FollowActionButton.handleTap(
-                          context,
-                          widget.story.id,
-                        ),
-                        avatarUrl:
-                            _profile?.avatarUrl ?? widget.story.imageUrl,
-                        avatarCacheKey:
-                            _profile?.avatarPath ?? widget.story.imageUrl,
-                      ),
+      builder: (c) => Obx(() {
+        final s = c.scale(context);
+        final topInset = MediaQuery.viewPaddingOf(context).top;
+        final loading = c.loading.value;
+        final profile = c.profile.value;
+        final posts = c.posts;
+        final _ = c.socialRevision.value;
+        final isSelf = c.isSelf;
+        final isFollowing = c.isFollowing;
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: StarProfileController.headerBackground,
+            statusBarIconBrightness: Brightness.dark,
+          ),
+          child: Scaffold(
+            backgroundColor: StarProfileController.pageBackground,
+            body: loading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFD14D4D),
+                      strokeWidth: 2,
                     ),
-                    SliverToBoxAdapter(
-                      child: _ProfileBody(
-                        scale: s,
-                        profile: _profile,
-                        story: widget.story,
-                        onChatTap: _onChatTap,
-                        onVideoCallTap: _onVideoCallTap,
-                      ),
+                  )
+                : CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
                     ),
-                    if (_posts.isNotEmpty)
-                      CircleFeedVerticalPostList(
-                        posts: _posts,
-                        followedAuthorIds: FollowService.followedIds.value,
-                        likedPostIds: LikeService.likedPostIds.value,
-                        hideFollowForAuthorId:
-                            _isSelf ? widget.story.id : null,
-                        onFollowTap: _onPostFollowTap,
-                        onLikeTap: _onPostLikeTap,
-                        onMoreTap: _onPostMoreTap,
-                        onPostTap: _openPostDetail,
-                      )
-                    else
+                    slivers: [
                       SliverToBoxAdapter(
-                        child: SizedBox(
-                          height: 220 * s,
-                          child: const Center(
-                            child: CircleFeedEmptyPlaceholder(),
+                        child: _HeaderSection(
+                          scale: s,
+                          topInset: topInset,
+                          isSelf: isSelf,
+                          isFollowing: isFollowing,
+                          onBack: () => Navigator.of(context).pop(),
+                          onMore: () => c.onMoreTap(context),
+                          onFollowTap: () => FollowActionButton.handleTap(
+                            context,
+                            c.story.id,
+                          ),
+                          avatarUrl: profile?.avatarUrl ?? c.story.imageUrl,
+                          avatarCacheKey:
+                              profile?.avatarPath ?? c.story.imageUrl,
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: _ProfileBody(
+                          scale: s,
+                          profile: profile,
+                          story: c.story,
+                          onChatTap: () => c.onChatTap(context),
+                          onVideoCallTap: () => c.onVideoCallTap(context),
+                        ),
+                      ),
+                      if (posts.isNotEmpty)
+                        CircleFeedVerticalPostList(
+                          posts: posts,
+                          followedAuthorIds: FollowService.followedIds.value,
+                          likedPostIds: LikeService.likedPostIds.value,
+                          hideFollowForAuthorId:
+                              isSelf ? c.story.id : null,
+                          onFollowTap: (post) => c.onPostFollowTap(context, post),
+                          onLikeTap: (post) => c.onPostLikeTap(context, post),
+                          onMoreTap: (post) => c.onPostMoreTap(context, post),
+                          onPostTap: (post) => c.openPostDetail(context, post),
+                        )
+                      else
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 220 * s,
+                            child: const Center(
+                              child: CircleFeedEmptyPlaceholder(),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-      ),
+                    ],
+                  ),
+          ),
+        );
+      }),
     );
   }
 }
@@ -318,7 +177,7 @@ class _HeaderSection extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                const ColoredBox(color: StarProfileScreen.headerBackground),
+                const ColoredBox(color: StarProfileController.headerBackground),
                 Image.asset(
                   StarProfileAssets.headerBg,
                   fit: BoxFit.none,

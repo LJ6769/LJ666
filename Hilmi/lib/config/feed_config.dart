@@ -16,6 +16,8 @@ abstract final class FeedConfig {
   static const int messageFeaturedPoolLimit = 48;
   static const int messageFeaturedDisplayCount = 6;
 
-  // —— 直播间观众列表 ——
-  static const int liveViewersDefaultLimit = 8;
+  // —— 直播间 / 聊天室观众列表（随机种子人数）——
+  static const int liveViewersMinCount = 3;
+  static const int liveViewersMaxCount = 5;
+  static const int liveViewersDefaultLimit = liveViewersMaxCount;
 }

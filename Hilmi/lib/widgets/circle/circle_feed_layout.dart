@@ -1,3 +1,4 @@
+// 朋友圈列表与详情共用卡片尺寸常量。
 import 'package:flutter/material.dart';
 
 /// 朋友圈列表与详情共用的卡片占位尺寸（与 [CircleFeedScreen] 列表一致）。
@@ -10,8 +11,8 @@ class CircleFeedLayout {
   /// 列表页标题行：上 8 + 图 40 + 下 4
   static const _headerHeight = 52.0;
 
-  /// Popular/Followed：上 28 + 下 24 + 胶囊 40
-  static const _tabsHeight = 92.0;
+  /// Popular/Followed：上 28 + 下 24 + 胶囊 48
+  static const _tabsHeight = 100.0;
 
   /// 底部分页指示：上 8 + 点 24 + 下 8（与列表有多页时对齐）
   static const _pagerHeight = 40.0;

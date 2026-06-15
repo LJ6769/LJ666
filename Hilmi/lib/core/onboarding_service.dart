@@ -1,3 +1,4 @@
+// 首次安装引导页完成状态的 SharedPreferences 持久化。
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 首次安装引导页完成状态（本地持久化）。

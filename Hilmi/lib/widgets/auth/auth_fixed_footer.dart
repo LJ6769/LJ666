@@ -1,3 +1,4 @@
+// 登录/注册底栏：主按钮固定，键盘时隐藏协议区。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/auth/auth_legal_footer.dart';
 import 'package:hilmi/widgets/auth/login_layout.dart';

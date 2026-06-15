@@ -1,3 +1,4 @@
+// Tipsy Bar 房间、成员、消息与进房详情模型。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 聊天室成员（麦位）。

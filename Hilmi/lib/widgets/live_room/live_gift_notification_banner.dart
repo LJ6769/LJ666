@@ -1,3 +1,4 @@
+// 直播画面中部礼物送出提示条。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/live_room/live_room_assets.dart';
@@ -18,7 +19,7 @@ class LiveGiftNotificationBanner extends StatelessWidget {
   final String giftIconAsset;
 
   static const _bannerDesignHeight = 45.0;
-  static const _bannerDesignWidth = 150.0;
+  static const _bannerDesignWidth = 130.0;
 
   static double get designHeight => _bannerDesignHeight;
 
@@ -27,8 +28,8 @@ class LiveGiftNotificationBanner extends StatelessWidget {
     final s = scale;
     final height = _bannerDesignHeight * s;
     final width = _bannerDesignWidth * s;
-    final avatarSize = 28 * s;
-    final giftSize = 30 * s;
+    final avatarSize = 26 * s;
+    final giftSize = 28 * s;
 
     return SizedBox(
       width: width,
@@ -43,7 +44,7 @@ class LiveGiftNotificationBanner extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: 6 * s),
+            padding: EdgeInsets.symmetric(horizontal: 5 * s),
             child: Row(
               children: [
                 ClipOval(

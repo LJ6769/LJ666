@@ -1,3 +1,4 @@
+// 内购商品兼容旧名，请改用 IapCatalogConfig。
 export 'package:hilmi/config/iap_catalog_config.dart';
 
 import 'package:hilmi/config/iap_catalog_config.dart' show IapCatalogConfig;

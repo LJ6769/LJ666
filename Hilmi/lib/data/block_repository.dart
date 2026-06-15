@@ -1,3 +1,4 @@
+// 拉黑关系：blocked_ids 与 toggle_block RPC。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/config/config.dart';

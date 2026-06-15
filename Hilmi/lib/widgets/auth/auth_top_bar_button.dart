@@ -1,3 +1,4 @@
+// 登录/注册顶栏返回或 Sign in/up 按钮。
 import 'package:flutter/material.dart';
 
 /// 登录/注册顶栏返回或 Sign in / Sign up 按钮（扩大点击区域，置于最上层）。

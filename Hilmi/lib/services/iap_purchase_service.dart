@@ -1,3 +1,4 @@
+// 消耗型内购：查询、购买、发货后 completePurchase。
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';

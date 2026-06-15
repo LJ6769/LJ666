@@ -1,3 +1,4 @@
+// 导航打开注册页。
 import 'package:flutter/material.dart';
 import 'package:hilmi/screens/signup_screen.dart';
 import 'package:hilmi/utils/auth_routes.dart';

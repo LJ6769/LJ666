@@ -48,6 +48,7 @@ dependencies:
   in_app_purchase: ^3.2.3
   sign_in_with_apple: ^7.0.1
   crypto: ^3.0.6
+  get: ^4.7.3
 
 # path_provider_foundation 2.6+ 经 objective_c FFI 打包，模拟器/真机构建交替时易嵌入错误架构导致 dlopen 失败。
 dependency_overrides:

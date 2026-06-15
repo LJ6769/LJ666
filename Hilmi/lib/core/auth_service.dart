@@ -1,9 +1,13 @@
+// Supabase Auth 会话与 public.User 资料读写、登出清理。
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/block_service.dart';
+import 'package:hilmi/core/current_profile_local_cache.dart';
+import 'package:hilmi/core/feed_data_cache.dart';
 import 'package:hilmi/core/follow_service.dart';
 import 'package:hilmi/core/hidden_conversations_service.dart';
 import 'package:hilmi/core/like_service.dart';
@@ -55,6 +59,18 @@ abstract final class AuthService {
     final inFlight = _profileLoadInFlight;
     if (inFlight != null) return inFlight;
 
+    if (!forceRefresh) {
+      final user = currentUser;
+      if (user != null) {
+        final local = await CurrentProfileLocalCache.load(user.id);
+        if (local != null) {
+          final profile = await _hydrateAvatarUrl(local);
+          _applyCachedProfile(profile);
+          return profile;
+        }
+      }
+    }
+
     final future = _loadCurrentProfile();
     _profileLoadInFlight = future;
     try {
@@ -64,6 +80,43 @@ abstract final class AuthService {
         _profileLoadInFlight = null;
       }
     }
+  }
+
+  static void _applyCachedProfile(UserProfile profile) {
+    _cachedProfile = profile;
+    FollowService.applyFromProfile(profile);
+    BlockService.applyFromProfile(profile);
+    LikeService.applyFromProfile(profile);
+    _publishCoins(profile.coins);
+  }
+
+  static Future<void> _persistCurrentProfile() async {
+    final profile = _cachedProfile;
+    if (profile == null) return;
+    await CurrentProfileLocalCache.save(profile);
+  }
+
+  /// 本地恢复后仅在 Signed URL 失效时续签，不查 public."User"。
+  static Future<UserProfile> _hydrateAvatarUrl(UserProfile profile) async {
+    final path = profile.avatarPath?.trim() ?? '';
+    if (path.isEmpty) return profile;
+
+    final cached = StorageMediaUrlResolver.lookup(path);
+    if (cached.isNotEmpty) {
+      return profile.avatarUrl == cached ? profile : profile.copyWith(avatarUrl: cached);
+    }
+
+    final existing = profile.avatarUrl?.trim() ?? '';
+    if (StorageMediaUrlResolver.isValidSignedMediaUrl(existing)) {
+      return profile;
+    }
+
+    final resolved = await StorageMediaUrlResolver.resolve(
+      path,
+      client: _client,
+    );
+    if (resolved.isEmpty) return profile;
+    return profile.copyWith(avatarUrl: resolved);
   }
 
   static Future<UserProfile?> _loadCurrentProfile() async {
@@ -109,10 +162,8 @@ abstract final class AuthService {
         row,
         avatarUrl: resolvedUrl.isEmpty ? null : resolvedUrl,
       );
-      FollowService.applyFromProfile(_cachedProfile);
-      BlockService.applyFromProfile(_cachedProfile);
-      LikeService.applyFromProfile(_cachedProfile);
-      _publishCoins(_cachedProfile!.coins);
+      _applyCachedProfile(_cachedProfile!);
+      await _persistCurrentProfile();
       return _cachedProfile;
     } on PostgrestException catch (error, stack) {
       if (isJwtClockSkewError(error)) {
@@ -146,6 +197,7 @@ abstract final class AuthService {
     final profile = _cachedProfile;
     if (profile == null) return;
     _cachedProfile = profile.copyWith(likedPostIds: ids);
+    unawaited(_persistCurrentProfile());
   }
 
   static void patchCoins(int coins) {
@@ -153,6 +205,7 @@ abstract final class AuthService {
     if (profile == null) return;
     _cachedProfile = profile.copyWith(coins: coins);
     _publishCoins(coins);
+    unawaited(_persistCurrentProfile());
   }
 
   static void _publishCoins(int? coins) {
@@ -633,8 +686,11 @@ abstract final class AuthService {
   static Future<void> clearAuthSession({
     SignOutScope scope = SignOutScope.local,
   }) async {
+    final authUserId = _cachedProfile?.authUserId ?? currentUser?.id;
     _cachedProfile = null;
     _publishCoins(null);
+    await CurrentProfileLocalCache.clear(authUserId);
+    FeedDataCache.clearProfilePosts();
     FollowService.reset();
     BlockService.reset();
     LikeService.reset();
@@ -666,8 +722,10 @@ abstract final class AuthService {
     await UserStorageCleanup.purgeAllForCurrentUser(client);
     await client.rpc('delete_my_account');
 
+    final authUserId = _cachedProfile?.authUserId ?? currentUser?.id;
     _cachedProfile = null;
     _publishCoins(null);
+    await CurrentProfileLocalCache.clear(authUserId);
     FollowService.reset();
     BlockService.reset();
     LikeService.reset();

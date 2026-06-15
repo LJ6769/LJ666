@@ -1,3 +1,4 @@
+// 删号前清理 media 桶内该用户 Storage 对象。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:hilmi/utils/storage_user_folder.dart';

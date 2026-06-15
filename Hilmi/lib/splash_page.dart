@@ -1,26 +1,12 @@
+// 启动闪屏页，展示品牌图并在结束后回调进入引导或首页。
 import 'package:flutter/material.dart';
 import 'package:hilmi/config/config.dart';
 
 /// 与 [AppConfig.splashBackground] 一致，保留此别名便于现有 import。
 const Color splashBackground = AppConfig.splashBackground;
 
-class SplashPage extends StatefulWidget {
-  const SplashPage({super.key, required this.onFinished});
-
-  final VoidCallback onFinished;
-
-  @override
-  State<SplashPage> createState() => _SplashPageState();
-}
-
-class _SplashPageState extends State<SplashPage> {
-  @override
-  void initState() {
-    super.initState();
-    Future<void>.delayed(AppConfig.splashDuration, () {
-      if (mounted) widget.onFinished();
-    });
-  }
+class SplashPage extends StatelessWidget {
+  const SplashPage({super.key});
 
   @override
   Widget build(BuildContext context) {

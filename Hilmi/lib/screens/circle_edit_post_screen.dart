@@ -1,238 +1,37 @@
+// 朋友圈发帖页：图片/视频 + 文案 + 发布。
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:hilmi/services/circle_post_publisher.dart';
-import 'package:hilmi/widgets/circle/circle_post_publish_success_dialog.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/circle_edit_post_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/splash_page.dart';
-import 'package:hilmi/utils/gallery_media_picker.dart';
 import 'package:hilmi/utils/keyboard_dismiss.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
 /// 朋友圈发帖页（对齐设计稿：图片最多 6 张 + Intro + Save）。
-class CircleEditPostScreen extends StatefulWidget {
+class CircleEditPostScreen extends StatelessWidget {
   const CircleEditPostScreen({super.key});
-
-  static const maxImages = 6;
-  static const _designWidth = 375.0;
-  static const _slotRadius = 14.0;
-
-  @override
-  State<CircleEditPostScreen> createState() => _CircleEditPostScreenState();
-}
-
-enum _PostMediaType { image, video }
-
-class _CircleEditPostScreenState extends State<CircleEditPostScreen> {
-  final _introController = TextEditingController();
-  final _galleryPicker = GalleryMediaPicker();
-  final _pickedImages = <XFile>[];
-  XFile? _pickedVideo;
-
-  _PostMediaType _mediaType = _PostMediaType.image;
-  bool _saving = false;
-
-  double _scale(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / CircleEditPostScreen._designWidth;
-
-  @override
-  void dispose() {
-    _introController.dispose();
-    super.dispose();
-  }
-
-  Future<ImageSource?> _chooseImageSource() {
-    final s = _scale(context);
-
-    return showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: const Color(0xFFFDF9ED),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16 * s)),
-        side: const BorderSide(color: Colors.black, width: 2),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: Text(
-                'Choose from Library',
-                style: TextStyle(
-                  fontSize: 16 * s,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: Text(
-                'Take Photo',
-                style: TextStyle(
-                  fontSize: 16 * s,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            SizedBox(height: 8 * s),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickImages() async {
-    if (_mediaType != _PostMediaType.image) return;
-    final remaining = CircleEditPostScreen.maxImages - _pickedImages.length;
-    if (remaining <= 0) return;
-
-    final source = await _chooseImageSource();
-    if (source == null || !mounted) return;
-
-    try {
-      final files = await _galleryPicker.pickImages(
-        limit: remaining,
-        source: source,
-      );
-      if (!mounted) return;
-      if (files == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              source == ImageSource.camera
-                  ? 'Allow camera access and try again'
-                  : 'Allow photo library access and try again',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-      if (files.isEmpty) return;
-      setState(() {
-        _pickedImages.addAll(files);
-        if (_pickedImages.length > CircleEditPostScreen.maxImages) {
-          _pickedImages.removeRange(
-            CircleEditPostScreen.maxImages,
-            _pickedImages.length,
-          );
-        }
-      });
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not choose image: $error'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _removeImage(int index) {
-    setState(() => _pickedImages.removeAt(index));
-  }
-
-  Future<void> _pickVideo() async {
-    if (_mediaType != _PostMediaType.video) return;
-
-    try {
-      if (!await _galleryPicker.ensureGalleryAccess(forVideo: true)) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Allow photo library access and try again'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      final file = await _galleryPicker.pickVideo();
-      if (!mounted) return;
-      if (file == null) return;
-      setState(() => _pickedVideo = file);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not choose video: $error'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _removeVideo() {
-    setState(() => _pickedVideo = null);
-  }
-
-  Future<void> _onSave() async {
-    if (_saving) return;
-
-    final intro = _introController.text.trim();
-    if (_mediaType == _PostMediaType.video) {
-      if (_pickedVideo == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please add a video'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-    } else if (_pickedImages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please add at least one image'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      await CirclePostPublisher.publish(
-        content: intro,
-        images: _mediaType == _PostMediaType.image ? _pickedImages : const [],
-        video: _mediaType == _PostMediaType.video ? _pickedVideo : null,
-      );
-      if (!mounted) return;
-      setState(() => _saving = false);
-      await CirclePostPublishSuccessDialog.show(context);
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_publishErrorMessage(error)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      if (mounted && _saving) setState(() => _saving = false);
-    }
-  }
-
-  String _publishErrorMessage(Object error) {
-    if (error is ArgumentError) {
-      return error.message?.toString() ?? 'Invalid post';
-    }
-    if (error is StateError) {
-      return error.message;
-    }
-    return 'Publish failed. Please try again.';
-  }
 
   @override
   Widget build(BuildContext context) {
-    final s = _scale(context);
+    return GetxScreen<CircleEditPostController>(
+      create: () => CircleEditPostController(),
+      builder: (c) => _CircleEditPostBody(controller: c),
+    );
+  }
+}
+
+class _CircleEditPostBody extends StatelessWidget {
+  const _CircleEditPostBody({required this.controller});
+
+  final CircleEditPostController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = controller.scale(context);
     final bottomPad = MediaQuery.paddingOf(context).bottom;
 
     return Scaffold(
@@ -248,86 +47,108 @@ class _CircleEditPostScreenState extends State<CircleEditPostScreen> {
                 Expanded(
                   child: SingleChildScrollView(
                     padding: EdgeInsets.fromLTRB(20 * s, 28 * s, 20 * s, 16 * s),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _MediaTypeTabs(
-                          scale: s,
-                          mediaType: _mediaType,
-                          onImageTap: () =>
-                              setState(() => _mediaType = _PostMediaType.image),
-                          onVideoTap: () =>
-                              setState(() => _mediaType = _PostMediaType.video),
-                        ),
-                        SizedBox(height: 22 * s),
-                        if (_mediaType == _PostMediaType.image) ...[
-                          Image.asset(
-                            CircleAssets.editLabelImage,
-                            height: 22 * s,
-                            fit: BoxFit.contain,
-                            alignment: Alignment.centerLeft,
-                          ),
-                          SizedBox(height: 12 * s),
-                          _ImageGrid(
-                            scale: s,
-                            images: _pickedImages,
-                            onAddTap: _pickImages,
-                            onRemove: _removeImage,
-                          ),
-                        ] else ...[
-                          Image.asset(
-                            CircleAssets.editLabelVideo,
-                            height: 22 * s,
-                            fit: BoxFit.contain,
-                            alignment: Alignment.centerLeft,
-                          ),
-                          SizedBox(height: 12 * s),
-                          _VideoUploadSection(
-                            scale: s,
-                            video: _pickedVideo,
-                            onAddTap: _pickVideo,
-                            onRemove: _removeVideo,
-                          ),
-                        ],
-                        SizedBox(height: 12 * s),
-                        Image.asset(
-                          CircleAssets.editLabelIntro,
-                          height: 22 * s,
-                          fit: BoxFit.contain,
-                          alignment: Alignment.centerLeft,
-                        ),
-                        SizedBox(height: 10 * s),
-                        _IntroField(scale: s, controller: _introController),
-                      ],
+                    child: Obx(
+                      () {
+                        final mediaType = controller.mediaType.value;
+                        final isImage =
+                            mediaType == CircleEditPostMediaType.image;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _MediaTypeTabs(
+                              scale: s,
+                              mediaType: mediaType,
+                              onImageTap: () => controller.setMediaType(
+                                CircleEditPostMediaType.image,
+                              ),
+                              onVideoTap: () => controller.setMediaType(
+                                CircleEditPostMediaType.video,
+                              ),
+                            ),
+                            SizedBox(height: 22 * s),
+                            if (isImage) ...[
+                              Image.asset(
+                                CircleAssets.editLabelImage,
+                                height: 22 * s,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.centerLeft,
+                              ),
+                              SizedBox(height: 12 * s),
+                              _ImageGrid(
+                                scale: s,
+                                images: controller.pickedImages.toList(),
+                                onAddTap: () =>
+                                    controller.pickImages(context),
+                                onRemove: controller.removeImage,
+                              ),
+                            ] else ...[
+                              Image.asset(
+                                CircleAssets.editLabelVideo,
+                                height: 22 * s,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.centerLeft,
+                              ),
+                              SizedBox(height: 12 * s),
+                              _VideoUploadSection(
+                                scale: s,
+                                video: controller.pickedVideo.value,
+                                onAddTap: () => controller.pickVideo(context),
+                                onRemove: controller.removeVideo,
+                              ),
+                            ],
+                            SizedBox(height: 12 * s),
+                            Image.asset(
+                              CircleAssets.editLabelIntro,
+                              height: 22 * s,
+                              fit: BoxFit.contain,
+                              alignment: Alignment.centerLeft,
+                            ),
+                            SizedBox(height: 10 * s),
+                            _IntroField(
+                              scale: s,
+                              controller: controller.introController,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
                 Padding(
-                  padding:
-                      EdgeInsets.fromLTRB(20 * s, 0, 20 * s, bottomPad + 12 * s),
-                  child: _SaveButton(
-                    scale: s,
-                    saving: _saving,
-                    onTap: _onSave,
+                  padding: EdgeInsets.fromLTRB(
+                    20 * s,
+                    0,
+                    20 * s,
+                    bottomPad + 12 * s,
+                  ),
+                  child: Obx(
+                    () => _SaveButton(
+                      scale: s,
+                      saving: controller.saving.value,
+                      onTap: () => controller.onSave(context),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          if (_saving)
-            Positioned.fill(
-              child: AbsorbPointer(
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFD14D4D),
-                      strokeWidth: 2.5,
+          Obx(
+            () => controller.saving.value
+                ? Positioned.fill(
+                    child: AbsorbPointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFFD14D4D),
+                            strokeWidth: 2.5,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
-            ),
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );
@@ -441,17 +262,20 @@ class _MediaTypeTabs extends StatelessWidget {
   });
 
   final double scale;
-  final _PostMediaType mediaType;
+  final CircleEditPostMediaType mediaType;
   final VoidCallback onImageTap;
   final VoidCallback onVideoTap;
 
   static const _tabAspect = 264 / 111;
 
+  /// Image / Video 切图显示高度（原 36，等比放大至与其他页选项卡一致）。
+  static const _tabHeight = 48.0;
+
   @override
   Widget build(BuildContext context) {
     final s = scale;
-    final isImage = mediaType == _PostMediaType.image;
-    final tabHeight = 36 * s;
+    final isImage = mediaType == CircleEditPostMediaType.image;
+    final tabHeight = _tabHeight * s;
     final tabWidth = tabHeight * _tabAspect;
 
     return Row(
@@ -540,7 +364,7 @@ class _ImageGrid extends StatelessWidget {
         crossAxisSpacing: cellGap,
         childAspectRatio: 1,
       ),
-      itemCount: CircleEditPostScreen.maxImages,
+      itemCount: CircleEditPostController.maxImages,
       itemBuilder: (context, index) {
         if (index < images.length) {
           return _FilledImageSlot(
@@ -639,9 +463,10 @@ class _FilledImageSlot extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = scale;
 
-    final radius = BorderRadius.circular(CircleEditPostScreen._slotRadius * s);
+    final radius =
+        BorderRadius.circular(CircleEditPostController.slotRadius * s);
     final innerRadius = BorderRadius.circular(
-      (CircleEditPostScreen._slotRadius - 2) * s,
+      (CircleEditPostController.slotRadius - 2) * s,
     );
 
     return SizedBox(
@@ -844,9 +669,9 @@ class _FilledVideoSlotState extends State<_FilledVideoSlot> {
     final controller = _controller;
     final ready = controller != null && controller.value.isInitialized;
     final radius =
-        BorderRadius.circular(CircleEditPostScreen._slotRadius * s);
+        BorderRadius.circular(CircleEditPostController.slotRadius * s);
     final innerRadius = BorderRadius.circular(
-      (CircleEditPostScreen._slotRadius - 2) * s,
+      (CircleEditPostController.slotRadius - 2) * s,
     );
 
     return SizedBox(

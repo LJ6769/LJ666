@@ -1,3 +1,4 @@
+// 关注/粉丝列表中的用户行模型。
 import 'package:hilmi/utils/user_handle.dart';
 import 'package:hilmi/models/direct_chat_peer.dart';
 

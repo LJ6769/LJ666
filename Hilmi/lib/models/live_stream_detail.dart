@@ -1,3 +1,4 @@
+// 进房后直播间详情（含已签名 video URL）。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 直播间详情（进房后拉取，含已签名的 video URL）。

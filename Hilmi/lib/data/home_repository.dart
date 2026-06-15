@@ -1,3 +1,4 @@
+// 首页 Feed：Live 房、Tipsy Bar、明星故事等聚合拉取。
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class HomeRepository {
   const HomeRepository();
 
+  static Future<List<LiveRoom>>? _bartendingPoolFetch;
+  static Future<List<TipsyBarRoom>>? _tipsyBarPoolFetch;
+
   static const _chatRoomSelect = '''
           id,
           room_index,
@@ -27,6 +31,7 @@ class HomeRepository {
           ChatRoomMember (
             sort_order,
             User (
+              id,
               avatar_path
             )
           )
@@ -38,11 +43,26 @@ class HomeRepository {
     return _loadHomeFeed(blockedHostIds: blockedHostIds);
   }
 
-  /// 下拉刷新：Discover / Live / Tipsy Bar 均重新随机。
+  /// 下拉刷新：优先从本地池重新随机；池未命中再拉 Supabase。
   Future<HomeFeedData> refreshHomeFeed({
     Set<String> blockedHostIds = const {},
-  }) {
+  }) async {
     FeedDataCache.clearHomeFeed();
+
+    final storyPool = FeedDataCache.discoverStoryPool;
+    if (storyPool != null) {
+      final liveRooms = FeedDataCache.bartendingLivePool ?? const <LiveRoom>[];
+      final tipsyRooms = FeedDataCache.tipsyBarPool ?? const <TipsyBarRoom>[];
+      final feed = _assembleHomeFeed(
+        storyPool: List<ProfileStory>.from(storyPool),
+        liveRooms: List<LiveRoom>.from(liveRooms),
+        tipsyRooms: List<TipsyBarRoom>.from(tipsyRooms),
+        blockedHostIds: blockedHostIds,
+      );
+      FeedDataCache.setHomeFeed(feed);
+      return feed;
+    }
+
     return _loadHomeFeed(
       forceRefresh: true,
       blockedHostIds: blockedHostIds,
@@ -109,6 +129,12 @@ class HomeRepository {
     final stories = results[0] as List<ProfileStory>;
     final liveRooms = results[1] as List<LiveRoom>;
     final tipsyRooms = results[2] as List<TipsyBarRoom>;
+    if (liveRooms.isNotEmpty) {
+      FeedDataCache.setBartendingLivePool(liveRooms);
+    }
+    if (tipsyRooms.isNotEmpty) {
+      FeedDataCache.setTipsyBarPool(tipsyRooms);
+    }
 
     debugPrint(
       '[HomeRepository] Stories=${stories.length} '
@@ -123,27 +149,126 @@ class HomeRepository {
     );
   }
 
-  /// 拉黑/取消拉黑后本地过滤，避免整页重拉与媒体重签。
+  /// 拉黑后仅移除相关卡片，其余保留；不足时从本地池补位（不整批重抽）。
   static HomeFeedData filterByBlockedHosts(
     HomeFeedData feed,
     Set<String> blockedHostIds,
   ) {
     if (blockedHostIds.isEmpty) return feed;
+
+    const repo = HomeRepository();
+
     return HomeFeedData(
       coinBalance: feed.coinBalance,
-      profileStories: feed.profileStories
-          .where((s) => !blockedHostIds.contains(s.id))
-          .toList(growable: false),
-      liveRooms: feed.liveRooms
-          .where(
-            (r) =>
-                r.hostId == null ||
-                r.hostId!.isEmpty ||
-                !blockedHostIds.contains(r.hostId),
-          )
-          .toList(growable: false),
-      tipsyBarRooms: feed.tipsyBarRooms,
+      profileStories: repo._refillDiscoverStoriesAfterBlock(
+        feed.profileStories,
+        blockedHostIds,
+      ),
+      liveRooms: repo._refillLivePreviewAfterBlock(
+        feed.liveRooms,
+        blockedHostIds,
+      ),
+      tipsyBarRooms: repo._refillTipsyPreviewAfterBlock(
+        feed.tipsyBarRooms,
+        blockedHostIds,
+      ),
     );
+  }
+
+  List<ProfileStory> _refillDiscoverStoriesAfterBlock(
+    List<ProfileStory> current,
+    Set<String> blockedHostIds,
+  ) {
+    final myId = AuthService.cachedProfile?.id.trim();
+    bool isEligible(ProfileStory story) {
+      if (blockedHostIds.contains(story.id)) return false;
+      if (myId != null && myId.isNotEmpty && story.id == myId) return false;
+      return true;
+    }
+
+    final kept =
+        current.where(isEligible).toList(growable: false);
+    // 展示不足 6 张且本次为拉黑（有卡片被移除）时仅减不补；
+    // 取消拉黑或列表已空时从本地池恢复，与 Live 卡一致。
+    final removedSomeone = kept.length < current.length;
+    if (removedSomeone && current.length < FeedConfig.discoverPreviewCount) {
+      return kept;
+    }
+
+    final pool = FeedDataCache.discoverStoryPool ?? const <ProfileStory>[];
+    return _fillPreviewFromPool<ProfileStory>(
+      kept: kept,
+      pool: pool.where(isEligible).toList(growable: false),
+      targetCount: FeedConfig.discoverPreviewCount,
+      idOf: (story) => story.id,
+      mapAtIndex: (story, _) => story,
+    );
+  }
+
+  List<LiveRoom> _refillLivePreviewAfterBlock(
+    List<LiveRoom> current,
+    Set<String> blockedHostIds,
+  ) {
+    final kept = current
+        .where(
+          (room) =>
+              room.hostId == null ||
+              room.hostId!.isEmpty ||
+              !blockedHostIds.contains(room.hostId),
+        )
+        .toList(growable: false);
+    final pool = FeedDataCache.bartendingLivePool ?? const <LiveRoom>[];
+    return _fillPreviewFromPool<LiveRoom>(
+      kept: kept,
+      pool: _eligibleLiveRooms(pool, blockedHostIds),
+      targetCount: FeedConfig.liveHomePreviewCount,
+      idOf: (room) => room.id,
+      mapAtIndex: (room, _) => room,
+    );
+  }
+
+  List<TipsyBarRoom> _refillTipsyPreviewAfterBlock(
+    List<TipsyBarRoom> current,
+    Set<String> blockedHostIds,
+  ) {
+    final kept = _eligibleTipsyBarRooms(current, blockedHostIds);
+    final pool = FeedDataCache.tipsyBarPool ?? const <TipsyBarRoom>[];
+    return _fillPreviewFromPool<TipsyBarRoom>(
+      kept: kept,
+      pool: _eligibleTipsyBarRooms(pool, blockedHostIds),
+      targetCount: FeedConfig.tipsyBarHomePreviewCount,
+      idOf: (room) => room.id,
+      mapAtIndex: _tipsyRoomWithPhotoSide,
+    );
+  }
+
+  List<T> _fillPreviewFromPool<T>({
+    required List<T> kept,
+    required List<T> pool,
+    required int targetCount,
+    required String Function(T) idOf,
+    required T Function(T item, int index) mapAtIndex,
+  }) {
+    final keptIds = kept.map(idOf).toSet();
+    final result = List<T>.from(kept);
+    if (result.length < targetCount) {
+      final candidates = pool
+          .where((item) => !keptIds.contains(idOf(item)))
+          .toList(growable: false);
+      final shuffled = List<T>.from(candidates)..shuffle(Random());
+      for (final item in shuffled) {
+        if (result.length >= targetCount) break;
+        result.add(item);
+        keptIds.add(idOf(item));
+      }
+    }
+    return result
+        .take(targetCount)
+        .toList()
+        .asMap()
+        .entries
+        .map((entry) => mapAtIndex(entry.value, entry.key))
+        .toList();
   }
 
   HomeFeedData _assembleHomeFeed({
@@ -155,12 +280,27 @@ class HomeRepository {
     final discoverPool = storyPool.isNotEmpty
         ? storyPool
         : kHomePlaceholderData.profileStories;
+    if (discoverPool.isNotEmpty) {
+      FeedDataCache.setDiscoverStoryPool(discoverPool);
+    }
 
     final usePlaceholderMedia = !AppBootstrap.isReady;
 
+    final eligibleStories = blockedHostIds.isEmpty
+        ? discoverPool
+        : discoverPool
+            .where((s) => !blockedHostIds.contains(s.id))
+            .toList(growable: false);
+    final eligibleTipsyPool = _eligibleTipsyBarRooms(
+      tipsyRooms.isNotEmpty
+          ? tipsyRooms
+          : (usePlaceholderMedia ? kHomePlaceholderData.tipsyBarRooms : []),
+      blockedHostIds,
+    );
+
     return HomeFeedData(
       coinBalance: AuthService.cachedProfile?.coins ?? UserConfig.guestBalance,
-      profileStories: _pickRandomDiscoverStories(discoverPool),
+      profileStories: _pickRandomDiscoverStories(eligibleStories),
       liveRooms: _pickRandomLiveRooms(
         _eligibleLiveRooms(
           liveRooms.isNotEmpty
@@ -169,11 +309,7 @@ class HomeRepository {
           blockedHostIds,
         ),
       ),
-      tipsyBarRooms: _pickRandomTipsyBarRooms(
-        tipsyRooms.isNotEmpty
-            ? tipsyRooms
-            : (usePlaceholderMedia ? kHomePlaceholderData.tipsyBarRooms : []),
-      ),
+      tipsyBarRooms: _pickRandomTipsyBarRooms(eligibleTipsyPool),
     );
   }
 
@@ -237,6 +373,9 @@ class HomeRepository {
           description,
           cover_path,
           video_path,
+          category_slug,
+          category_name,
+          tags,
           is_live,
           sort_order,
           viewer_count,
@@ -247,43 +386,81 @@ class HomeRepository {
           )
         ''';
 
-  /// See All → Popular 随机展示数量；Tutorials / Other 显示该分类全部。
-  /// Bartending Live 列表（See All）：Popular 随机 4 条，其余按分类筛选。
+  /// See All → Popular 随机展示；Tutorials / Other 显示该分类全部。
+  /// 首次进入拉取全量直播并缓存，后续各 Tab 从本地分类缓存读取。
+  Future<List<LiveRoom>> ensureBartendingLivePool({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = FeedDataCache.bartendingLivePool;
+      if (cached != null) return cached;
+    }
+
+    final inFlight = _bartendingPoolFetch;
+    if (inFlight != null) return inFlight;
+
+    final fetch = _fetchAndCacheBartendingPool();
+    _bartendingPoolFetch = fetch;
+    try {
+      return await fetch;
+    } finally {
+      if (identical(_bartendingPoolFetch, fetch)) {
+        _bartendingPoolFetch = null;
+      }
+    }
+  }
+
   Future<List<LiveRoom>> fetchBartendingLiveList({
     String? categorySlug,
     Set<String> blockedHostIds = const {},
+    bool forceRefresh = false,
   }) async {
+    final normalizedSlug = _normalizeCategorySlug(categorySlug);
+    if (!forceRefresh && normalizedSlug != null) {
+      final cachedCategory = FeedDataCache.bartendingLiveCategory(normalizedSlug);
+      if (cachedCategory != null) {
+        return _eligibleLiveRooms(cachedCategory, blockedHostIds);
+      }
+    }
+
+    final pool = await ensureBartendingLivePool(forceRefresh: forceRefresh);
+    return _bartendingListResult(pool, normalizedSlug, blockedHostIds);
+  }
+
+  Future<List<LiveRoom>> _fetchAndCacheBartendingPool() async {
     final client = AppBootstrap.client;
     if (!AppBootstrap.isReady || client == null) {
-      return _bartendingListResult(
-        kBartendingLiveListPlaceholder,
-        categorySlug,
-        blockedHostIds,
-      );
+      return FeedDataCache.bartendingLivePool ?? kBartendingLiveListPlaceholder;
     }
 
     try {
-      var query = client
+      final rows = await client
           .from(SupabaseTables.live)
           .select(_liveRoomSelect)
-          .eq('is_live', true);
-
-      if (categorySlug != null) {
-        query = query.eq('category_slug', categorySlug);
-      }
-
-      final rows =
-          await query.order('sort_order', ascending: true) as List<dynamic>;
+          .eq('is_live', true)
+          .order('sort_order', ascending: true) as List<dynamic>;
       final rooms = await _mapLiveRows(rows, client);
-      final pool = rooms.isNotEmpty
-          ? rooms
-          : <LiveRoom>[];
-      return _bartendingListResult(pool, categorySlug, blockedHostIds);
+      final pool = rooms.isNotEmpty ? rooms : <LiveRoom>[];
+      if (pool.isNotEmpty) {
+        FeedDataCache.setBartendingLivePool(pool);
+        return pool;
+      }
+      return FeedDataCache.bartendingLivePool ?? pool;
     } catch (error, stack) {
       debugPrint('[HomeRepository] fetchBartendingLiveList: $error');
       debugPrint('$stack');
-      return _bartendingListResult(<LiveRoom>[], categorySlug, blockedHostIds);
+      return FeedDataCache.bartendingLivePool ?? const <LiveRoom>[];
     }
+  }
+
+  String? _normalizeCategorySlug(String? categorySlug) {
+    final slug = categorySlug?.trim().toLowerCase();
+    if (slug == null || slug.isEmpty) return null;
+    return slug;
+  }
+
+  bool _matchesCategorySlug(LiveRoom room, String categorySlug) {
+    return _normalizeCategorySlug(room.categorySlug) == categorySlug;
   }
 
   List<LiveRoom> _bartendingListResult(
@@ -291,7 +468,15 @@ class HomeRepository {
     String? categorySlug,
     Set<String> blockedHostIds,
   ) {
-    final eligible = _eligibleLiveRooms(pool, blockedHostIds);
+    var filtered = pool;
+    if (categorySlug != null) {
+      final cachedCategory = FeedDataCache.bartendingLiveCategory(categorySlug);
+      filtered = cachedCategory ??
+          pool
+              .where((room) => _matchesCategorySlug(room, categorySlug))
+              .toList(growable: false);
+    }
+    final eligible = _eligibleLiveRooms(filtered, blockedHostIds);
     if (categorySlug == null) {
       return _pickRandomLiveRooms(eligible, count: FeedConfig.livePopularListCount);
     }
@@ -357,6 +542,8 @@ class HomeRepository {
       final streamerId = map['streamer_id'] as String?;
       final hostEmail = profile?['email'] as String?;
 
+      final rawDescription = map['description'] as String?;
+
       return LiveRoom(
         id: map['id'] as String,
         coverUrl: StorageMediaUrlResolver.pick(signed, coverPath),
@@ -365,25 +552,75 @@ class HomeRepository {
         hostId: streamerId,
         hostEmail: hostEmail,
         hostAvatarUrl: StorageMediaUrlResolver.pick(signed, avatarPath),
-        title: _liveCardTitle(map['description'] as String?),
+        title: _liveCardTitle(rawDescription),
+        description: rawDescription,
+        tags: _readLiveTags(map['tags']),
+        categorySlug: map['category_slug'] as String?,
+        categoryName: map['category_name'] as String?,
         isLive: map['is_live'] as bool? ?? true,
       );
     }).toList();
   }
 
-  /// Tipsy Bar 列表页（See All）。
-  Future<List<TipsyBarRoom>> fetchTipsyBarList() async {
+  static List<String> _readLiveTags(Object? raw) {
+    if (raw is List) {
+      return [
+        for (final item in raw)
+          if (item != null) item.toString().trim(),
+      ].where((tag) => tag.isNotEmpty).toList(growable: false);
+    }
+    return const [];
+  }
+
+  /// Tipsy Bar 列表页（See All）：首次拉取并缓存 30 天，后续从本地读取。
+  Future<List<TipsyBarRoom>> fetchTipsyBarList({
+    bool forceRefresh = false,
+    Set<String> blockedUserIds = const {},
+  }) async {
+    final pool = await ensureTipsyBarPool(forceRefresh: forceRefresh);
+    return _eligibleTipsyBarRooms(pool, blockedUserIds);
+  }
+
+  /// 首次进入拉取全量房间并缓存，后续列表页从本地读取。
+  Future<List<TipsyBarRoom>> ensureTipsyBarPool({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = FeedDataCache.tipsyBarPool;
+      if (cached != null) return cached;
+    }
+
+    final inFlight = _tipsyBarPoolFetch;
+    if (inFlight != null) return inFlight;
+
+    final fetch = _fetchAndCacheTipsyBarPool();
+    _tipsyBarPoolFetch = fetch;
+    try {
+      return await fetch;
+    } finally {
+      if (identical(_tipsyBarPoolFetch, fetch)) {
+        _tipsyBarPoolFetch = null;
+      }
+    }
+  }
+
+  Future<List<TipsyBarRoom>> _fetchAndCacheTipsyBarPool() async {
     final client = AppBootstrap.client;
     if (!AppBootstrap.isReady || client == null) {
-      return kHomePlaceholderData.tipsyBarRooms;
+      return FeedDataCache.tipsyBarPool ?? kHomePlaceholderData.tipsyBarRooms;
     }
 
     try {
-      return await _fetchTipsyBarRooms(client);
+      final rooms = await _fetchTipsyBarRooms(client);
+      if (rooms.isNotEmpty) {
+        FeedDataCache.setTipsyBarPool(rooms);
+        return rooms;
+      }
+      return FeedDataCache.tipsyBarPool ?? rooms;
     } catch (error, stack) {
       debugPrint('[HomeRepository] fetchTipsyBarList: $error');
       debugPrint('$stack');
-      return const [];
+      return FeedDataCache.tipsyBarPool ?? const <TipsyBarRoom>[];
     }
   }
 
@@ -394,6 +631,22 @@ class HomeRepository {
         .order('sort_order', ascending: true) as List<dynamic>;
 
     return _mapChatRoomRows(rows, client);
+  }
+
+  List<TipsyBarRoom> _eligibleTipsyBarRooms(
+    List<TipsyBarRoom> pool,
+    Set<String> blockedUserIds,
+  ) {
+    if (blockedUserIds.isEmpty) return pool;
+    return pool
+        .where(
+          (room) =>
+              (room.hostUserId == null ||
+                  room.hostUserId!.isEmpty ||
+                  !blockedUserIds.contains(room.hostUserId)) &&
+              !room.participantUserIds.any(blockedUserIds.contains),
+        )
+        .toList(growable: false);
   }
 
   List<TipsyBarRoom> _pickRandomTipsyBarRooms(List<TipsyBarRoom> pool) {
@@ -415,6 +668,8 @@ class HomeRepository {
       coverUrl: room.coverUrl,
       title: room.title,
       description: room.description,
+      hostUserId: room.hostUserId,
+      participantUserIds: room.participantUserIds,
       participantAvatarUrls: room.participantAvatarUrls,
       imageOnRight: index.isOdd,
     );
@@ -449,10 +704,44 @@ class HomeRepository {
         coverUrl: StorageMediaUrlResolver.pick(signed, coverPath),
         title: map['title'] as String?,
         description: map['description'] as String?,
+        hostUserId: _hostUserIdFromRow(map),
+        participantUserIds: _participantUserIdsFromRow(map),
         participantAvatarUrls: participantUrls,
         imageOnRight: map['image_on_right'] as bool? ?? false,
       );
     }).toList();
+  }
+
+  List<String> _participantUserIdsFromRow(Map<String, dynamic> roomMap) {
+    final members = _readEmbeddedMembers(roomMap['ChatRoomMember'])
+      ..sort(
+        (a, b) => (a['sort_order'] as int? ?? 0).compareTo(
+          b['sort_order'] as int? ?? 0,
+        ),
+      );
+    final seen = <String>{};
+    final ids = <String>[];
+    for (final member in members) {
+      final id =
+          (_readEmbeddedProfile(member['User'])?['id'] as String?)?.trim() ?? '';
+      if (id.isEmpty || !seen.add(id)) continue;
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  String? _hostUserIdFromRow(Map<String, dynamic> roomMap) {
+    final members = _readEmbeddedMembers(roomMap['ChatRoomMember'])
+      ..sort(
+        (a, b) => (a['sort_order'] as int? ?? 0).compareTo(
+          b['sort_order'] as int? ?? 0,
+        ),
+      );
+    if (members.isEmpty) return null;
+    final profile = _readEmbeddedProfile(members.first['User']);
+    final id = profile?['id'] as String?;
+    final trimmed = id?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   List<Map<String, dynamic>> _readEmbeddedMembers(Object? raw) {
@@ -477,13 +766,20 @@ class HomeRepository {
         ),
       );
 
-    final urls = [
-      for (final member in members.take(5))
+    final seen = <String>{};
+    final urls = <String?>[];
+    for (final member in members) {
+      final profile = _readEmbeddedProfile(member['User']);
+      final id = (profile?['id'] as String?)?.trim() ?? '';
+      if (id.isEmpty || !seen.add(id)) continue;
+      urls.add(
         StorageMediaUrlResolver.pickNullable(
           signed,
-          _readEmbeddedProfile(member['User'])?['avatar_path'] as String?,
+          profile?['avatar_path'] as String?,
         ),
-    ];
+      );
+      if (urls.length >= 5) break;
+    }
     return tipsyBarCardParticipantAvatars(urls);
   }
 

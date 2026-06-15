@@ -1,3 +1,4 @@
+// 登录/注册底部可点击协议与隐私政策文案。
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:hilmi/constants/legal_documents.dart';

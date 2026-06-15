@@ -1,3 +1,4 @@
+// 朋友圈点赞：liked_post_ids 与 toggle_post_like RPC。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 

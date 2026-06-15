@@ -1,3 +1,4 @@
+// 应用启动时初始化 Supabase 客户端并暴露就绪状态。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';

@@ -1,3 +1,4 @@
+// 注册未登录前暂存头像本地路径，登录后上传。
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 注册时尚未登录，暂存头像本地路径，首次登录后上传。

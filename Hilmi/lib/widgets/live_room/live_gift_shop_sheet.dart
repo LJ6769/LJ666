@@ -1,3 +1,4 @@
+// 直播间礼物商城底部弹层。
 import 'package:flutter/material.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:hilmi/core/auth_service.dart';

@@ -1,9 +1,10 @@
+// 清除应用内本地与内存缓存（不含登录会话与 EULA）。
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:hilmi/core/app_media_cache_manager.dart';
 import 'package:hilmi/core/feed_data_cache.dart';
 import 'package:hilmi/core/live_video_preloader.dart';
 import 'package:hilmi/core/viewer_session.dart';
@@ -14,13 +15,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 退出登录请使用 [AuthService.clearAuthSession]。
 abstract final class LocalCacheService {
-  /// 估算图片磁盘缓存大小（字节）。
+  /// 估算媒体磁盘缓存大小（字节）。
   static Future<int> estimateCacheBytes() async {
     try {
       final tmp = await getTemporaryDirectory();
-      final cacheDir = Directory('${tmp.path}/libCachedImageData');
-      if (!await cacheDir.exists()) return 0;
-      return _directorySize(cacheDir);
+      var total = 0;
+      for (final name in ['libCachedImageData', 'hilmi_supabase_media']) {
+        final cacheDir = Directory('${tmp.path}/$name');
+        if (await cacheDir.exists()) {
+          total += await _directorySize(cacheDir);
+        }
+      }
+      return total;
     } catch (error, stack) {
       debugPrint('[LocalCacheService] estimateCacheBytes: $error');
       debugPrint('$stack');
@@ -57,7 +63,7 @@ abstract final class LocalCacheService {
     imageCache.clearLiveImages();
 
     try {
-      await DefaultCacheManager().emptyCache();
+      await AppMediaCacheManager.instance.emptyCache();
     } catch (error, stack) {
       debugPrint('[LocalCacheService] emptyCache failed: $error');
       debugPrint('$stack');

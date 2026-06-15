@@ -1,3 +1,4 @@
+// 用户金币相关兼容旧名，请改用 UserConfig。
 export 'package:hilmi/config/user_config.dart';
 import 'package:hilmi/config/user_config.dart' show UserConfig;
 

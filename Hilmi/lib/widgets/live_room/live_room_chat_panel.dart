@@ -1,3 +1,4 @@
+// 直播间聊天区：公告 + 可滑动弹幕列表。
 import 'package:flutter/material.dart';
 import 'package:hilmi/models/live_chat_message.dart';
 import 'package:hilmi/utils/open_star_profile.dart';
@@ -12,12 +13,14 @@ class LiveRoomChatPanel extends StatelessWidget {
     required this.messages,
     required this.scrollController,
     required this.communityNoticeText,
+    this.onUserMessageTap,
   });
 
   final double scale;
   final List<LiveChatMessage> messages;
   final ScrollController scrollController;
   final String communityNoticeText;
+  final void Function(LiveChatMessage message)? onUserMessageTap;
 
   static const _chatListPhysics = AlwaysScrollableScrollPhysics(
     parent: BouncingScrollPhysics(
@@ -48,6 +51,7 @@ class LiveRoomChatPanel extends StatelessWidget {
             name: msg.displayName,
             text: msg.text,
             avatarUrl: msg.avatarUrl,
+            onTap: onUserMessageTap == null ? null : () => onUserMessageTap!(msg),
           ),
         ),
       );
@@ -128,6 +132,7 @@ class _UserBubble extends StatelessWidget {
     required this.name,
     required this.text,
     this.avatarUrl,
+    this.onTap,
   });
 
   final double scale;
@@ -135,6 +140,7 @@ class _UserBubble extends StatelessWidget {
   final String name;
   final String text;
   final String? avatarUrl;
+  final VoidCallback? onTap;
 
   void _onAvatarTap(BuildContext context) {
     final id = senderId?.trim();
@@ -164,52 +170,56 @@ class _UserBubble extends StatelessWidget {
         ),
         SizedBox(width: 8 * scale),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.88),
-                  fontSize: 11 * scale,
-                  fontWeight: FontWeight.w600,
-                  shadows: const [
-                    Shadow(
-                      color: Color(0x99000000),
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 4 * scale),
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 10 * scale,
-                  vertical: 8 * scale,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(10 * scale),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: Text(
-                  text,
+          child: GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.95),
-                    fontSize: 12 * scale,
-                    height: 1.35,
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 11 * scale,
+                    fontWeight: FontWeight.w600,
                     shadows: const [
                       Shadow(
-                        color: Color(0x66000000),
-                        blurRadius: 3,
+                        color: Color(0x99000000),
+                        blurRadius: 4,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                SizedBox(height: 4 * scale),
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 10 * scale,
+                    vertical: 8 * scale,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(10 * scale),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.18),
+                    ),
+                  ),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      fontSize: 12 * scale,
+                      height: 1.35,
+                      shadows: const [
+                        Shadow(
+                          color: Color(0x66000000),
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],

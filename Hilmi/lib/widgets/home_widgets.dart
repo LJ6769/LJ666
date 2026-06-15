@@ -1,3 +1,4 @@
+// 首页通用卡片框、分区标题、明星 Discover 大卡。
 import 'package:flutter/material.dart';
 
 import '../models/home_models.dart';
@@ -8,6 +9,9 @@ import 'common/cached_media_image.dart';
 const Color homeAccentRed = Color(0xFFC84B4B);
 const double homeCardRadius = 22;
 const double homeBorderWidth = 3;
+
+/// Discover / Message 顶部标题切图显示高度。
+const double homeSectionTitleHeight = 40;
 
 /// 卡片内图片与黑色边框的间距（对齐 Tjgo `_frameInset` 9pt）。
 const double homeCardMediaInset = 9;
@@ -194,7 +198,7 @@ class HomeDiscoverHeader extends StatelessWidget {
         children: [
           Image.asset(
             'assets/home/discover_title.png',
-            height: 44,
+            height: homeSectionTitleHeight,
             fit: BoxFit.contain,
           ),
           const Spacer(),
@@ -208,30 +212,41 @@ class HomeDiscoverHeader extends StatelessWidget {
   }
 }
 
+/// Discover / Message 明星横滑卡缩放（与首页设计稿对齐）。
+const double homeProfileStoryCardScale = 0.9;
+
 class HomeProfileStoriesRow extends StatelessWidget {
   const HomeProfileStoriesRow({
     super.key,
     required this.stories,
     this.onProfileTap,
     this.onChatTap,
+    this.cardScale = homeProfileStoryCardScale,
   });
 
   final List<ProfileStory> stories;
   final void Function(ProfileStory story)? onProfileTap;
   final void Function(ProfileStory story)? onChatTap;
+  final double cardScale;
 
   @override
   Widget build(BuildContext context) {
+    if (stories.isEmpty) return const SizedBox.shrink();
+
+    final rowHeight = HomeProfileDiscoverCard.cardHeight * cardScale;
+    final gap = 12 * cardScale;
+
     return SizedBox(
-      height: 148,
+      height: rowHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: stories.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 12),
+        separatorBuilder: (context, index) => SizedBox(width: gap),
         itemBuilder: (context, index) {
           final story = stories[index];
           return HomeProfileDiscoverCard(
+            scale: cardScale,
             imageUrl: story.imageUrl,
             onProfileTap:
                 onProfileTap == null ? null : () => onProfileTap!(story),
@@ -251,20 +266,29 @@ class HomeProfileDiscoverCard extends StatelessWidget {
     this.imageUrl,
     this.onProfileTap,
     this.onChatTap,
+    this.scale = 1,
   });
 
   final String? imageUrl;
   final VoidCallback? onProfileTap;
   final VoidCallback? onChatTap;
+  final double scale;
 
   static const cardWidth = 108.0;
   static const cardHeight = 148.0;
+  static const _chatBtnSize = 36.0;
+  static const _chatBtnInset = 8.0;
 
   @override
   Widget build(BuildContext context) {
+    final width = cardWidth * scale;
+    final height = cardHeight * scale;
+    final chatBtnSize = _chatBtnSize * scale;
+    final chatBtnInset = _chatBtnInset * scale;
+
     return SizedBox(
-      width: cardWidth,
-      height: cardHeight,
+      width: width,
+      height: height,
       child: HomeBorderedCard(
         child: Stack(
           fit: StackFit.expand,
@@ -279,15 +303,15 @@ class HomeProfileDiscoverCard extends StatelessWidget {
               ),
             ),
             Positioned(
-              right: 8,
-              bottom: 8,
+              right: chatBtnInset,
+              bottom: chatBtnInset,
               child: GestureDetector(
                 onTap: onChatTap,
                 behavior: HitTestBehavior.opaque,
                 child: Image.asset(
                   'assets/home/btn_chat.png',
-                  width: 36,
-                  height: 36,
+                  width: chatBtnSize,
+                  height: chatBtnSize,
                 ),
               ),
             ),

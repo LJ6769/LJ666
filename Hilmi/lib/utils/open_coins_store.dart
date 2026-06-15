@@ -1,3 +1,4 @@
+// 导航打开金币商城；未登录先跳登录。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/screens/coins_store_screen.dart';

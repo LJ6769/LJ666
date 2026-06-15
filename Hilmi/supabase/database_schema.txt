@@ -1,0 +1,365 @@
+================================================================================
+Hilmi 项目数据库表结构说明
+================================================================================
+数据库引擎：PostgreSQL（Supabase 托管）
+Schema：public（业务表）+ auth（Supabase 内置认证）+ storage（文件存储）
+生成依据：supabase/migrations/ 及 deploy 脚本（截至 2026-06-29 迁移）
+客户端表名常量：lib/config/database_config.dart → SupabaseTables
+================================================================================
+
+
+================================================================================
+一、枚举类型（ENUM）
+================================================================================
+
+gender_type
+  取值：male | female | other
+  用途：User.gender 性别字段
+
+
+================================================================================
+二、业务表（public schema）共 9 张
+================================================================================
+
+
+--------------------------------------------------------------------------------
+表 1：User（用户 / 主播资料）
+说明：核心业务用户表，与 Supabase Auth 的 auth.users 通过 auth_user_id 关联。
+      关注、拉黑、点赞关系存于数组字段，不单独建关系表。
+      RLS：未启用（disable row level security，客户端可直接读取）
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    业务用户主键
+auth_user_id            uuid              UNIQUE, FK → auth.users(id)      Supabase 登录用户 ID
+display_name            text              NOT NULL                         显示昵称
+gender                  gender_type       NULL                             性别（male/female/other）
+bio                     text              NULL                             个人简介
+avatar_path             text              NULL                             头像 Storage 路径（media 桶）
+email                   text              NULL                             邮箱（小写存储）
+apple_user_id           text              UNIQUE, NULL                     Apple 登录唯一标识
+coins                   integer           NOT NULL, DEFAULT 0, >= 0        金币余额
+avatar_frame_index      integer           NOT NULL, DEFAULT 0              头像框索引
+is_popular_star         boolean           NOT NULL, DEFAULT false          是否为 Popular Star 主播
+popular_star_sort       integer           NULL                             明星排序（越小越靠前）
+following_ids           uuid[]            NOT NULL, DEFAULT '{}'           我关注的人 ID 列表
+follower_ids            uuid[]            NOT NULL, DEFAULT '{}'           关注我的人 ID 列表
+blocked_ids             uuid[]            NOT NULL, DEFAULT '{}'           我拉黑的人 ID 列表
+liked_post_ids          uuid[]            NOT NULL, DEFAULT '{}'           我点赞的帖子 ID 列表
+iap_processed_tx_ids    text[]            NOT NULL, DEFAULT '{}'           已处理 IAP 交易号（幂等防重复发货）
+eula_accepted_at        timestamptz       NULL                             注册流程同意 EULA 的时间
+eula_login_accepted_at  timestamptz       NULL                             登录流程同意 EULA 的时间
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+updated_at              timestamptz       NOT NULL, DEFAULT now()          更新时间（触发器自动维护）
+
+索引：
+  user_auth_user_id_idx          (auth_user_id)
+  user_popular_star_idx          (is_popular_star, popular_star_sort) WHERE is_popular_star = true
+  user_following_ids_gin         GIN (following_ids)
+  user_follower_ids_gin          GIN (follower_ids)
+
+
+--------------------------------------------------------------------------------
+表 2：Live（直播间）
+说明：调酒直播房间，视频为预录 Storage 路径，非真实推流。
+      RLS：启用，公开读；写操作通过 RPC（join/leave）或种子数据维护。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    直播间主键
+category_slug           text              NOT NULL                         分类 slug（如 popular、tutorials）
+category_name           text              NOT NULL                         分类显示名
+category_sort_order     integer           NOT NULL, DEFAULT 0              分类排序
+show_on_home            boolean           NOT NULL, DEFAULT false          是否在首页 Discover 展示
+streamer_id             uuid              NOT NULL, FK → User(id) CASCADE  主播用户 ID
+room_index              integer           NOT NULL                         该分类下房间序号
+description             text              NOT NULL                         直播间描述
+tags                    text[]            NOT NULL, DEFAULT '{}'           标签数组
+cover_path              text              NULL                             封面图 Storage 路径
+video_path              text              NULL                             视频 Storage 路径
+viewer_count            integer           NOT NULL, DEFAULT 0, >= 0        当前观众数
+is_live                 boolean           NOT NULL, DEFAULT true           是否直播中
+sort_order              integer           NOT NULL, DEFAULT 0              列表排序
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+updated_at              timestamptz       NOT NULL, DEFAULT now()          更新时间
+
+唯一约束：UNIQUE (category_slug, room_index)
+
+索引：
+  live_category_home_idx         (show_on_home, category_sort_order)
+  live_streamer_idx              (streamer_id)
+
+Realtime：否（仅 LiveChat 开启）
+
+
+--------------------------------------------------------------------------------
+表 3：Post（朋友圈帖子）
+说明：Circle 朋友圈内容。
+      RLS：启用，公开读；authenticated 可 insert/update/delete。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    帖子主键
+post_index              integer           NOT NULL, UNIQUE                 帖子序号（全局唯一递增）
+author_id               uuid              NOT NULL, FK → User(id) CASCADE  作者用户 ID
+content                 text              NOT NULL                         帖子文字内容
+like_count              integer           NOT NULL, DEFAULT 0, >= 0        点赞数（RPC toggle_post_like 维护）
+comment_count           integer           NOT NULL, DEFAULT 0, >= 0        评论数（PostChat 插入触发器 +1）
+media                   jsonb             NOT NULL, DEFAULT '[]'           媒体数组，见下方 JSONB 结构
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+updated_at              timestamptz       NOT NULL, DEFAULT now()          更新时间
+
+索引：
+  post_author_idx                (author_id)
+  post_created_idx               (created_at DESC)
+
+Post.media JSONB 数组元素结构：
+  图片：
+    {
+      "type": "image",
+      "storage_path": "moments/posts/{authorId}/{uuid}.jpg",
+      "sort_order": 0
+    }
+  视频：
+    {
+      "type": "video",
+      "storage_path": "moments/posts/{authorId}/{uuid}.mp4",
+      "poster_path": "moments/posts/{authorId}/{uuid}_poster.jpg",
+      "sort_order": 0
+    }
+  种子数据示例路径：moments/1.mp4、moments/1/poster.jpg
+
+
+--------------------------------------------------------------------------------
+表 4：PostChat（帖子评论）
+说明：朋友圈帖子下的评论。
+      RLS：启用，公开读；authenticated 可 insert。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    评论主键
+post_id                 uuid              NOT NULL, FK → Post(id) CASCADE  所属帖子 ID
+author_id               uuid              NOT NULL, FK → User(id) CASCADE  评论作者 ID
+content                 text              NOT NULL, trim 后长度 > 0        评论内容
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+
+索引：
+  post_chat_post_idx             (post_id, created_at)
+
+触发器：插入后自动 Post.comment_count + 1
+
+
+--------------------------------------------------------------------------------
+表 5：LiveChat（直播弹幕）
+说明：直播间公屏聊天消息。
+      RLS：启用，公开读；authenticated 与 anon 均可 insert。
+      Realtime：已加入 supabase_realtime publication。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    消息主键
+live_id                 uuid              NOT NULL, FK → Live(id) CASCADE  所属直播间 ID
+sender_id               uuid              NULL, FK → User(id) SET NULL   发送者 ID（游客可为 ViewerSession 临时 ID）
+content                 text              NOT NULL, trim 后长度 > 0        弹幕内容
+created_at              timestamptz       NOT NULL, DEFAULT now()          发送时间
+
+索引：
+  live_chat_live_idx             (live_id, created_at)
+
+
+--------------------------------------------------------------------------------
+表 6：Message（私信）
+说明：一对一私信。同一张表存两种 message_kind：
+      - header：会话摘要（每个 conversation_id 唯一）
+      - chat：具体聊天消息
+      RLS：启用，公开读；authenticated 可 insert/update（update 供 header 触发器 upsert）。
+      Realtime：未启用（客户端进页拉取 + 发送后本地追加）。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    行主键
+conversation_id         uuid              NOT NULL                         会话 ID（两用户首次聊天时 UUID v4 生成）
+message_kind            text              NOT NULL                         'header' | 'chat'
+user_low_id             uuid              NOT NULL, FK → User(id) CASCADE  两用户 ID 中较小者
+user_high_id            uuid              NOT NULL, FK → User(id) CASCADE  两用户 ID 中较大者
+sender_id               uuid              NULL, FK → User(id) SET NULL   发送者（header 行必须为 NULL）
+body                    text              NULL                             消息正文（chat 行必填，header 行必须为 NULL）
+last_message_at         timestamptz       NULL                             最后消息时间（header 行使用）
+last_message_preview    text              NULL                             最后消息预览，最多 200 字（header 行使用）
+last_sender_id          uuid              NULL, FK → User(id) SET NULL   最后发送者（header 行使用）
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+
+约束：
+  message_users_ordered      user_low_id < user_high_id
+  message_header_shape       kind=header 时 body IS NULL 且 sender_id IS NULL
+  message_chat_shape         kind=chat 时 body 非空且 sender_id 非 NULL
+
+索引：
+  message_conversation_header_uidx   UNIQUE (conversation_id) WHERE message_kind = 'header'
+  message_conversation_created_idx   (conversation_id, created_at)
+
+触发器：插入 chat 行后自动 upsert 对应 header 行的 last_message_* 字段
+
+
+--------------------------------------------------------------------------------
+表 7：ChatRoom（Tipsy Bar 语音聊天室）
+说明：微醺酒吧聊天室元数据。
+      RLS：启用，公开读。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    聊天室主键
+room_index              integer           NOT NULL, UNIQUE                 房间序号（全局递增）
+title                   text              NOT NULL                         房间标题
+description             text              NOT NULL                         房间描述
+cover_path              text              NOT NULL                         封面图 Storage 路径
+image_on_right          boolean           NOT NULL, DEFAULT false          首页卡片图片是否靠右
+show_on_home            boolean           NOT NULL, DEFAULT true           是否在首页展示
+sort_order              integer           NOT NULL, DEFAULT 0              列表排序
+host_audio_path         text              NULL                             房主语音 Storage 路径（如 chat-audio/1.mp3）
+created_at              timestamptz       NOT NULL, DEFAULT now()          创建时间
+
+索引：
+  chat_room_home_idx             (show_on_home, sort_order)
+
+
+--------------------------------------------------------------------------------
+表 8：ChatRoomMember（聊天室成员）
+说明：聊天室与用户的关联；sort_order=0 为房主，其余为嘉宾位。
+      RLS：启用，公开读。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+chat_room_id            uuid              NOT NULL, FK → ChatRoom(id) CASCADE  聊天室 ID
+user_id                 uuid              NOT NULL, FK → User(id) CASCADE      成员用户 ID
+sort_order              integer           NOT NULL, DEFAULT 0                  座位序号（0=房主）
+
+主键：PRIMARY KEY (chat_room_id, user_id)
+
+索引：
+  chat_room_member_room_idx      (chat_room_id, sort_order)
+
+
+--------------------------------------------------------------------------------
+表 9：ChatRoomChat（聊天室公屏消息）
+说明：Tipsy Bar 房间内文字聊天。
+      RLS：启用，公开读；authenticated 与 anon 均可 insert。
+      Realtime：已加入 supabase_realtime publication。
+--------------------------------------------------------------------------------
+
+字段名                  类型              约束 / 默认值                    说明
+--------------------------------------------------------------------------------
+id                      uuid              PK, default gen_random_uuid()    消息主键
+chat_room_id            uuid              NOT NULL, FK → ChatRoom(id) CASCADE  所属聊天室 ID
+sender_id               uuid              NULL, FK → User(id) SET NULL   发送者 ID
+content                 text              NOT NULL, trim 后长度 > 0        消息内容
+created_at              timestamptz       NOT NULL, DEFAULT now()          发送时间
+
+索引：
+  chat_room_chat_room_idx        (chat_room_id, created_at)
+
+
+================================================================================
+三、表关系概览
+================================================================================
+
+User
+  ├── 1:N → Post          (author_id)
+  ├── 1:N → Live          (streamer_id)
+  ├── 1:N → PostChat      (author_id)
+  ├── 1:N → LiveChat      (sender_id)
+  ├── 1:N → Message       (user_low_id / user_high_id / sender_id)
+  ├── N:M → ChatRoom      (经 ChatRoomMember)
+  └── 1:N → ChatRoomChat  (sender_id)
+
+Post
+  └── 1:N → PostChat      (post_id)
+
+Live
+  └── 1:N → LiveChat      (live_id)
+
+ChatRoom
+  ├── 1:N → ChatRoomMember (chat_room_id)
+  └── 1:N → ChatRoomChat   (chat_room_id)
+
+Message
+  └── 按 conversation_id 聚合 header + chat 行
+
+
+================================================================================
+四、Supabase Auth 关联表（auth schema，系统内置）
+================================================================================
+
+auth.users
+  说明：Supabase 认证用户，由 Auth API / Apple 登录创建。
+  与业务表关联：User.auth_user_id → auth.users.id
+  触发器：on_auth_user_created → 自动 insert public."User" 行
+
+常用字段（客户端一般不直接查）：
+  id, email, encrypted_password, email_confirmed_at,
+  raw_user_meta_data, created_at, updated_at, ...
+
+
+================================================================================
+五、Storage（storage schema）
+================================================================================
+
+Bucket：media
+  public：false（私有桶，客户端通过 createSignedUrls 获取临时 URL）
+  file_size_limit：52428800（50 MB）
+
+常见路径前缀：
+  avatars/{userId}/              用户头像
+  moments/posts/{userId}/        用户发布的帖子媒体
+  moments/{n}.mp4                种子帖子视频
+  moments/{n}/poster.jpg         种子帖子封面
+  live/{category}/{n}.jpg        直播封面
+  live/{category}/{n}.mp4        直播视频
+  chat-rooms/{n}.jpg             聊天室封面
+  chat-audio/{n}.mp3             聊天室房主语音
+
+
+================================================================================
+六、主要 RPC 函数（非表，供参考）
+================================================================================
+
+toggle_follow(p_target_id)              关注 / 取关
+toggle_block(p_target_id)               拉黑 / 取消拉黑
+toggle_post_like(p_post_id)             点赞 / 取消点赞
+grant_coins_from_purchase(...)          IAP 充值发货（幂等）
+spend_user_coins(p_amount)              消费金币（礼物、创建房间等）
+join_live_stream(p_stream_id)           进入直播间，viewer_count + 1
+leave_live_stream(p_stream_id)          离开直播间，viewer_count - 1
+create_tipsy_chat_room(...)             创建聊天室（扣 20 金币）
+delete_tipsy_chat_room(p_room_id)       房主删除聊天室
+accept_eula()                           注册同意 EULA
+accept_eula_login()                     登录同意 EULA
+delete_my_account()                     删除账号及关联数据
+
+
+================================================================================
+七、RLS 策略摘要
+================================================================================
+
+User              RLS 关闭（公开读写，敏感写操作走 RPC）
+Live              SELECT 公开；写由种子/RPC
+Post              SELECT 公开；INSERT/UPDATE/DELETE → authenticated
+PostChat          SELECT 公开；INSERT → authenticated
+LiveChat          SELECT 公开；INSERT → authenticated + anon
+Message           SELECT 公开；INSERT/UPDATE → authenticated
+ChatRoom          SELECT 公开
+ChatRoomMember    SELECT 公开
+ChatRoomChat      SELECT 公开；INSERT → authenticated + anon
+
+
+================================================================================
+文档结束
+================================================================================

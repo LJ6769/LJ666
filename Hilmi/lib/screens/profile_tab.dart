@@ -1,18 +1,16 @@
-import 'dart:async';
-
+// 底部 Tab：个人中心 Mine（资料、My Post、My Like）。
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/profile_controller.dart';
 import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/block_service.dart';
 import 'package:hilmi/core/follow_service.dart';
 import 'package:hilmi/core/like_service.dart';
-import 'package:hilmi/core/profile_refresh_signal.dart';
-import 'package:hilmi/data/circle_repository.dart';
 import 'package:hilmi/models/circle_post.dart';
 import 'package:hilmi/models/user_profile.dart';
 import 'package:hilmi/splash_page.dart';
 import 'package:hilmi/utils/open_circle_post.dart';
-import 'package:hilmi/utils/open_edit_profile.dart';
 import 'package:hilmi/utils/open_coins_store.dart';
+import 'package:hilmi/utils/open_edit_profile.dart';
 import 'package:hilmi/utils/open_login_screen.dart';
 import 'package:hilmi/utils/open_settings_screen.dart';
 import 'package:hilmi/utils/user_handle.dart';
@@ -22,154 +20,22 @@ import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/profile/profile_assets.dart';
 import 'package:hilmi/widgets/profile/profile_filter_tabs.dart';
 
+const _profileHeaderPatternHeight = 168.0;
+const _profileAvatarSize = 108.0;
+const _profileAvatarOverlap = 54.0;
+
 /// 个人中心（Mine）：资料区 + My Post / My Like 朋友圈式卡片列表。
-class ProfileTab extends StatefulWidget {
-  const ProfileTab({
-    super.key,
-    this.repository = const CircleRepository(),
-  });
+class ProfileTab extends GetView<ProfileController> {
+  const ProfileTab({super.key});
 
-  final CircleRepository repository;
-
-  @override
-  State<ProfileTab> createState() => _ProfileTabState();
-}
-
-class _ProfileTabState extends State<ProfileTab> {
-  static const _headerPatternHeight = 168.0;
-  static const _avatarSize = 108.0;
-  /// 头像探入顶栏的高度（勿用于负 padding）。
-  static const _avatarOverlap = 54.0;
-
-  UserProfile? _profile;
-  List<CirclePost> _myPosts = [];
-  List<CirclePost> _likedPosts = [];
-  bool _loadingProfile = true;
-  bool _loadingPosts = true;
-  int _tabIndex = 0;
-
-  List<CirclePost> get _visiblePosts => _tabIndex == 0 ? _myPosts : _likedPosts;
-
-  void _onProfileRefreshSignal() {
-    if (!mounted) return;
-    final event = ProfileRefreshSignal.notifier.value;
-    if (event.postsOnly) {
-      unawaited(_refreshPostsOnly());
-    } else {
-      unawaited(_loadAll());
-    }
-  }
-
-  /// 不重拉资料，避免 applyFromProfile 牵动朋友圈列表二次刷新。
-  Future<void> _refreshPostsOnly() async {
-    if (!mounted) return;
-    var profile = _profile ?? AuthService.cachedProfile;
-    profile ??= await AuthService.loadCurrentProfile();
-    if (!mounted) return;
-    if (profile == null) {
-      await _loadAll();
-      return;
-    }
-    setState(() {
-      _profile = profile;
-      _loadingPosts = true;
-    });
-    await _loadPosts(profile);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    ProfileRefreshSignal.notifier.addListener(_onProfileRefreshSignal);
-    FollowService.followedIds.addListener(_onFollowIdsChanged);
-    BlockService.blockedIds.addListener(_onFollowIdsChanged);
-    LikeService.likedPostIds.addListener(_onLikedIdsChanged);
-    _loadAll();
-  }
-
-  @override
-  void dispose() {
-    ProfileRefreshSignal.notifier.removeListener(_onProfileRefreshSignal);
-    FollowService.followedIds.removeListener(_onFollowIdsChanged);
-    BlockService.blockedIds.removeListener(_onFollowIdsChanged);
-    LikeService.likedPostIds.removeListener(_onLikedIdsChanged);
-    super.dispose();
-  }
-
-  void _onFollowIdsChanged() {
-    if (!mounted) return;
-    setState(() {
-      _likedPosts = BlockService.filterPosts(_likedPosts);
-    });
-  }
-
-  Future<void> _onLikedIdsChanged() async {
-    if (!mounted) return;
-    final profile = _profile;
-    if (profile == null) return;
-    final ids = LikeService.likedPostIds.value.toList();
-    final posts = await widget.repository.fetchPostsByIds(ids);
-    if (!mounted) return;
-    setState(() {
-      _likedPosts = BlockService.filterPosts(posts);
-    });
-  }
-
-  Future<void> _loadAll() async {
-    if (!mounted) return;
-    setState(() {
-      _loadingProfile = true;
-      _loadingPosts = true;
-    });
-
-    final profile = await AuthService.loadCurrentProfile(forceRefresh: true);
-    if (!mounted) return;
-
-    setState(() {
-      _profile = profile;
-      _loadingProfile = false;
-    });
-
-    await _loadPosts(profile);
-  }
-
-  Future<void> _loadPosts(UserProfile? profile) async {
-    if (profile == null) {
-      if (!mounted) return;
-      setState(() {
-        _myPosts = const [];
-        _likedPosts = const [];
-        _loadingPosts = false;
-      });
-      return;
-    }
-
-    final results = await Future.wait([
-      widget.repository.fetchPostsByAuthorId(profile.id),
-      widget.repository.fetchPostsByIds(profile.likedPostIds),
-    ]);
-
-    if (!mounted) return;
-    setState(() {
-      _myPosts = results[0];
-      _likedPosts = BlockService.filterPosts(results[1]);
-      _loadingPosts = false;
-    });
-  }
-
-  void _onTabSelected(int index) {
-    if (_tabIndex == index) return;
-    setState(() => _tabIndex = index);
-  }
-
-  Future<void> _openEditProfile() async {
+  Future<void> _openEditProfile(BuildContext context) async {
     final updated = await openEditProfileScreen(context);
-    if (updated == true && mounted) {
-      await _loadAll();
+    if (updated == true) {
+      await controller.onProfileEdited();
     }
   }
 
-  Future<void> _onFollowTap(CirclePost post) async {
+  Future<void> _onFollowTap(BuildContext context, CirclePost post) async {
     if (!AuthService.isLoggedIn) {
       await openLoginScreen(context);
       return;
@@ -177,7 +43,7 @@ class _ProfileTabState extends State<ProfileTab> {
     try {
       await FollowService.toggle(post.authorId);
     } catch (error) {
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString()),
@@ -187,7 +53,7 @@ class _ProfileTabState extends State<ProfileTab> {
     }
   }
 
-  Future<void> _onLikeTap(CirclePost post) async {
+  Future<void> _onLikeTap(BuildContext context, CirclePost post) async {
     if (!AuthService.isLoggedIn) {
       await openLoginScreen(context);
       return;
@@ -195,7 +61,7 @@ class _ProfileTabState extends State<ProfileTab> {
     try {
       await LikeService.toggle(post.id);
     } catch (error) {
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.toString()),
@@ -205,102 +71,118 @@ class _ProfileTabState extends State<ProfileTab> {
     }
   }
 
-  Future<void> _onMoreTap(CirclePost post) async {
+  Future<void> _onMoreTap(BuildContext context, CirclePost post) async {
     final result = await CirclePostMoreSheet.show(
       context,
       post: post,
-      repository: widget.repository,
+      repository: controller.repository,
     );
-    if (!mounted || result != CirclePostMoreResult.deleted) return;
-    setState(() {
-      _myPosts = _myPosts.where((p) => p.id != post.id).toList();
-      _likedPosts = _likedPosts.where((p) => p.id != post.id).toList();
-    });
-    ProfileRefreshSignal.notify();
+    if (result != CirclePostMoreResult.deleted) return;
+    controller.removePost(post);
   }
 
-  Future<void> _openPostDetail(CirclePost post) async {
-    final isOwnPost = post.authorId == _profile?.id;
+  Future<void> _openPostDetail(BuildContext context, CirclePost post) async {
+    final currentProfile = controller.profile.value;
+    final isOwnPost = post.authorId == currentProfile?.id;
     final result = await openCirclePostDetail(
       context,
       post: post,
       isFollowed: isOwnPost || FollowService.isFollowing(post.authorId),
       isLiked: LikeService.isLiked(post.id),
     );
-    if (!mounted) return;
     if (result?.deleted == true) {
-      setState(() {
-        _myPosts = _myPosts.where((p) => p.id != post.id).toList();
-        _likedPosts = _likedPosts.where((p) => p.id != post.id).toList();
-      });
-      ProfileRefreshSignal.notify();
-      return;
+      controller.removePost(post);
     }
-    if (result != null) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = _profile;
-    final displayName = profile?.displayName ?? 'Player';
-    final email = profile?.email ?? AuthService.currentUser?.email ?? '';
-    final bio = profile?.bio?.trim();
-    final handle = formatUserHandle(
-      email: email.isNotEmpty ? email : null,
-      userId: profile?.id,
-    );
-
     return ColoredBox(
       color: splashBackground,
       child: RefreshIndicator(
         color: const Color(0xFFD14D4D),
-        onRefresh: _loadAll,
+        onRefresh: () => controller.loadAll(forceRefresh: true),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(
             parent: BouncingScrollPhysics(),
           ),
           slivers: [
             SliverToBoxAdapter(
-              child: _ProfileTopSection(
-                profile: profile,
-                displayName: displayName,
-                email: email,
-                handle: handle,
-                bio: bio,
-                tabIndex: _tabIndex,
-                onTabSelected: _onTabSelected,
-                onSettingsTap: () => openSettingsScreen(context),
-                onCoinsStoreTap: () => openCoinsStore(context),
-                onEditAvatarTap: _openEditProfile,
-              ),
+              child: Obx(() {
+                final currentProfile = controller.profile.value;
+                final displayName = currentProfile?.displayName ?? 'Player';
+                final email =
+                    currentProfile?.email ??
+                    AuthService.currentUser?.email ??
+                    '';
+                final bio = currentProfile?.bio?.trim();
+                final handle = formatUserHandle(
+                  email: email.isNotEmpty ? email : null,
+                  userId: currentProfile?.id,
+                );
+
+                return _ProfileTopSection(
+                  profile: currentProfile,
+                  displayName: displayName,
+                  email: email,
+                  handle: handle,
+                  bio: bio,
+                  tabIndex: controller.tabIndex.value,
+                  onTabSelected: controller.selectTab,
+                  onSettingsTap: () => openSettingsScreen(context),
+                  onCoinsStoreTap: () => openCoinsStore(context),
+                  onEditAvatarTap: () => _openEditProfile(context),
+                );
+              }),
             ),
-            if (_loadingProfile || _loadingPosts)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: Color(0xFFD14D4D),
-                    strokeWidth: 2,
+            Obx(() {
+              final currentProfile = controller.profile.value;
+              final loading = controller.loadingProfile.value ||
+                  controller.loadingPosts.value;
+              final tabIndex = controller.tabIndex.value;
+              final visiblePosts = tabIndex == 0
+                  ? controller.myPosts.toList(growable: false)
+                  : controller.likedPosts.toList(growable: false);
+
+              if (loading) {
+                return const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFD14D4D),
+                      strokeWidth: 2,
+                    ),
                   ),
-                ),
-              )
-            else if (_visiblePosts.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: _ProfileEmptyState(),
-              )
-            else
-              CircleFeedVerticalPostList(
-                key: ValueKey('profile_posts_$_tabIndex'),
-                posts: _visiblePosts,
-                followedAuthorIds: FollowService.followedIds.value,
-                likedPostIds: LikeService.likedPostIds.value,
-                hideFollowForAuthorId: profile?.id,
-                onFollowTap: _onFollowTap,
-                onLikeTap: _onLikeTap,
-                onMoreTap: _onMoreTap,
-                onPostTap: _openPostDetail,
-              ),
+                );
+              }
+              if (visiblePosts.isEmpty) {
+                return const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _ProfileEmptyState(),
+                );
+              }
+              return ValueListenableBuilder<Set<String>>(
+                valueListenable: FollowService.followedIds,
+                builder: (context, followedIds, _) {
+                  return ValueListenableBuilder<Set<String>>(
+                    valueListenable: LikeService.likedPostIds,
+                    builder: (context, likedPostIds, _) {
+                      return CircleFeedVerticalPostList(
+                        key: ValueKey('profile_posts_$tabIndex'),
+                        posts: visiblePosts,
+                        followedAuthorIds: followedIds,
+                        likedPostIds: likedPostIds,
+                        hideFollowForAuthorId: currentProfile?.id,
+                        onFollowTap: (post) => _onFollowTap(context, post),
+                        onLikeTap: (post) => _onLikeTap(context, post),
+                        onMoreTap: (post) => _onMoreTap(context, post),
+                        onPostTap: (post) => _openPostDetail(context, post),
+                      );
+                    },
+                  );
+                },
+              );
+            }),
           ],
         ),
       ),
@@ -308,7 +190,6 @@ class _ProfileTabState extends State<ProfileTab> {
   }
 }
 
-/// 顶栏 + 重叠头像 + 资料区（单块布局，避免负 padding / Transform）。
 class _ProfileTopSection extends StatelessWidget {
   const _ProfileTopSection({
     required this.profile,
@@ -334,14 +215,12 @@ class _ProfileTopSection extends StatelessWidget {
   final VoidCallback onCoinsStoreTap;
   final VoidCallback onEditAvatarTap;
 
-  static const _headerH = _ProfileTabState._headerPatternHeight;
-  static const _avatarSize = _ProfileTabState._avatarSize;
-  static const _avatarOverlap = _ProfileTabState._avatarOverlap;
-
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
-    final stackHeight = topInset + _headerH + _avatarSize - _avatarOverlap;
+    final stackHeight =
+        topInset + _profileHeaderPatternHeight + _profileAvatarSize -
+            _profileAvatarOverlap;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -357,7 +236,7 @@ class _ProfileTopSection extends StatelessWidget {
                 top: 0,
                 left: 0,
                 right: 0,
-                height: topInset + _headerH,
+                height: topInset + _profileHeaderPatternHeight,
                 child: _ProfileHeaderBar(
                   topInset: topInset,
                   onSettingsTap: onSettingsTap,
@@ -422,7 +301,6 @@ class _ProfileHeaderBar extends StatelessWidget {
   final double topInset;
   final VoidCallback onSettingsTap;
 
-  /// 相对安全区顶部的额外下移（Mine / Settings）。
   static const _contentTopBelowInset = 20.0;
 
   @override
@@ -475,19 +353,25 @@ class _ProfileAvatar extends StatelessWidget {
   final UserProfile? profile;
   final VoidCallback onEditAvatarTap;
 
-  static const _size = _ProfileTabState._avatarSize;
-  /// 编辑头像角标切图逻辑尺寸（@3x 75px → 25pt）。
   static const _editBadgeSize = 25.0;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _size,
-      height: _size,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(child: _buildAvatarImage()),
+    final avatarKey = profile?.avatarPath?.trim().isNotEmpty == true
+        ? profile!.avatarPath!.trim()
+        : profile?.id ?? 'guest';
+
+    return RepaintBoundary(
+      child: SizedBox(
+        width: _profileAvatarSize,
+        height: _profileAvatarSize,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              key: ValueKey('profile_avatar_$avatarKey'),
+              child: _buildAvatarImage(),
+            ),
           Positioned(
             right: -2,
             bottom: -2,
@@ -502,7 +386,8 @@ class _ProfileAvatar extends StatelessWidget {
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -511,6 +396,8 @@ class _ProfileAvatar extends StatelessWidget {
     if (profile != null &&
         profile!.avatarUrl != null &&
         profile!.avatarUrl!.isNotEmpty) {
+      final avatarUrl = profile!.avatarUrl!;
+      final avatarPath = profile!.avatarPath;
       return DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
@@ -519,10 +406,15 @@ class _ProfileAvatar extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(19.5),
           child: CachedMediaImage(
-            url: profile!.avatarUrl!,
-            cacheKey: profile!.avatarPath,
-            width: _size,
-            height: _size,
+            key: ValueKey(
+              avatarPath?.trim().isNotEmpty == true
+                  ? avatarPath!.trim()
+                  : avatarUrl,
+            ),
+            url: avatarUrl,
+            cacheKey: avatarPath,
+            width: _profileAvatarSize,
+            height: _profileAvatarSize,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => _placeholder(),
           ),
@@ -541,7 +433,7 @@ class _ProfileAvatar extends StatelessWidget {
       ),
       child: Icon(
         Icons.person_outline,
-        size: _size * 0.42,
+        size: _profileAvatarSize * 0.42,
         color: Colors.black.withValues(alpha: 0.35),
       ),
     );
@@ -597,7 +489,6 @@ class _IntroBox extends StatelessWidget {
   }
 }
 
-/// 无帖子时居中鸡尾酒剪影。
 class _ProfileEmptyState extends StatelessWidget {
   const _ProfileEmptyState();
 
@@ -639,4 +530,3 @@ class _CoinsStoreBanner extends StatelessWidget {
     );
   }
 }
-

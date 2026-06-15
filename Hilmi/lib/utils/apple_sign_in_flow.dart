@@ -1,3 +1,4 @@
+// 调起 Apple 登录并完成 EULA（登录/注册共用）。
 import 'dart:io';
 
 import 'package:flutter/material.dart';

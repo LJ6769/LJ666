@@ -1,3 +1,4 @@
+// 上传封面并 RPC 创建 Tipsy Bar 聊天室。
 import 'dart:io';
 import 'dart:math';
 
@@ -143,6 +144,7 @@ abstract final class TipsyBarRoomCreator {
           ChatRoomMember (
             sort_order,
             User (
+              id,
               avatar_path
             )
           )
@@ -184,11 +186,22 @@ abstract final class TipsyBarRoomCreator {
         ),
     ]);
 
+    final hostProfile = members.isEmpty
+        ? null
+        : _readEmbeddedProfile(members.first['User']);
+    final hostId = (hostProfile?['id'] as String?)?.trim() ?? '';
+
     return TipsyBarRoom(
       id: map['id'] as String,
       coverUrl: StorageMediaUrlResolver.pickNullable(signed, coverPath),
       title: map['title'] as String?,
       description: map['description'] as String?,
+      hostUserId: hostId.isEmpty ? null : hostId,
+      participantUserIds: [
+        for (final member in members)
+          (_readEmbeddedProfile(member['User'])?['id'] as String?)?.trim() ??
+              '',
+      ].where((id) => id.isNotEmpty).toList(growable: false),
       participantAvatarUrls: participantUrls,
       imageOnRight: map['image_on_right'] as bool? ?? false,
     );

@@ -1,8 +1,9 @@
+// 消息列表曾隐藏的 peer ID（列表删除已改走删库；保留用于再次聊天时恢复展示）。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 消息列表「删除」= 仅隐藏会话卡片；不删库内聊天记录。
+/// 本地记录的已隐藏 peer；列表右滑删除会删库，此处仅作历史隐藏态清理与再次聊天恢复。
 abstract final class HiddenConversationsService {
   static const _keyPrefix = 'hidden_message_peer_ids_';
 

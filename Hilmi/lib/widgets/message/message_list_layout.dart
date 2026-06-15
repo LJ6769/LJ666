@@ -1,3 +1,5 @@
+import 'package:hilmi/widgets/home_widgets.dart';
+
 /// 消息列表页布局常量（对齐设计稿 @3x）。
 abstract final class MessageListLayout {
   static const designWidth = 375.0;
@@ -5,10 +7,12 @@ abstract final class MessageListLayout {
   static const borderWidth = 3.0;
   static const cardRadius = 22.0;
 
-  /// 与首页 [HomeProfileStoriesRow] 明星卡一致（108×148）。
-  static const featuredCardW = 108.0;
-  static const featuredCardH = 148.0;
-  static const featuredRowH = 148.0;
+  /// 与首页 [HomeProfileStoriesRow] 明星卡一致（108×148 @ [homeProfileStoryCardScale]）。
+  static const featuredCardW =
+      HomeProfileDiscoverCard.cardWidth * homeProfileStoryCardScale;
+  static const featuredCardH =
+      HomeProfileDiscoverCard.cardHeight * homeProfileStoryCardScale;
+  static const featuredRowH = featuredCardH;
 
   static const allChatH = 40.0;
 

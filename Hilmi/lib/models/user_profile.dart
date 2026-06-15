@@ -35,25 +35,48 @@ class UserProfile {
       (avatarPath != null && avatarPath!.isNotEmpty);
 
   UserProfile copyWith({
+    String? displayName,
+    String? email,
+    String? bio,
+    String? avatarPath,
+    String? avatarUrl,
     int? coins,
     List<String>? likedPostIds,
     List<String>? followingIds,
     List<String>? blockedIds,
+    DateTime? eulaAcceptedAt,
   }) {
     return UserProfile(
       id: id,
       authUserId: authUserId,
-      displayName: displayName,
-      email: email,
-      bio: bio,
-      avatarPath: avatarPath,
-      avatarUrl: avatarUrl,
+      displayName: displayName ?? this.displayName,
+      email: email ?? this.email,
+      bio: bio ?? this.bio,
+      avatarPath: avatarPath ?? this.avatarPath,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
       coins: coins ?? this.coins,
       likedPostIds: likedPostIds ?? this.likedPostIds,
       followingIds: followingIds ?? this.followingIds,
       blockedIds: blockedIds ?? this.blockedIds,
-      eulaAcceptedAt: eulaAcceptedAt,
+      eulaAcceptedAt: eulaAcceptedAt ?? this.eulaAcceptedAt,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'auth_user_id': authUserId,
+      'display_name': displayName,
+      'email': email,
+      'bio': bio,
+      'avatar_path': avatarPath,
+      'avatar_url': avatarUrl,
+      'coins': coins,
+      'liked_post_ids': likedPostIds,
+      'following_ids': followingIds,
+      'blocked_ids': blockedIds,
+      'eula_accepted_at': eulaAcceptedAt?.toIso8601String(),
+    };
   }
 
   factory UserProfile.fromJson(

@@ -1,3 +1,4 @@
+// 私有 Storage bucket 的 Signed URL 生成与缓存。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/config/config.dart';
 import 'package:hilmi/core/app_bootstrap.dart';

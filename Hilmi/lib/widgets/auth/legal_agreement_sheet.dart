@@ -1,3 +1,4 @@
+// 用户协议/隐私政策底部弹层。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/auth/legal_assets.dart';
 import 'package:hilmi/widgets/auth/legal_layout.dart';

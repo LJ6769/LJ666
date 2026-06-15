@@ -1,3 +1,4 @@
+// 收起软键盘工具与点击空白收键盘 Scope。
 import 'package:flutter/material.dart';
 
 /// 收起软键盘（点击空白区域或输入框外部时调用）。

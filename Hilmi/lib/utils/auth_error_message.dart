@@ -1,3 +1,4 @@
+// 将 Supabase Auth 错误码转为用户可读文案。
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 String messageFromAuthError(Object error) {

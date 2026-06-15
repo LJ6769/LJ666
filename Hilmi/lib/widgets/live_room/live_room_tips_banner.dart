@@ -1,3 +1,4 @@
+// 直播间顶部社区提示横幅。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/live_room/live_room_assets.dart';
 

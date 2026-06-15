@@ -1,3 +1,4 @@
+// 登录/注册校验提示与双按钮确认弹窗。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/auth/legal_assets.dart';
 import 'package:hilmi/widgets/auth/legal_layout.dart';

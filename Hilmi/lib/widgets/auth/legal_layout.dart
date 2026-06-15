@@ -1,3 +1,4 @@
+// EULA/协议弹层布局常量（@3x 缩放）。
 import 'package:flutter/material.dart';
 
 /// EULA / 协议弹层布局常量（切图 @3x，数值 = 像素 ÷ 3）。

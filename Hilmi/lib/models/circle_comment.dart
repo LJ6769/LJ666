@@ -1,3 +1,4 @@
+// 朋友圈帖子评论模型（PostChat 表行）。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 朋友圈帖子评论（PostChat 表）。

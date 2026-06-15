@@ -1,146 +1,68 @@
+// 设置页：关注、黑名单、协议、反馈、登出。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 import 'package:hilmi/constants/legal_documents.dart';
-import 'package:hilmi/core/auth_service.dart';
-import 'package:hilmi/core/local_cache_service.dart';
+import 'package:hilmi/controllers/settings_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/splash_page.dart';
-import 'package:hilmi/utils/auth_error_message.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
+import 'package:hilmi/utils/open_blacklist_list.dart';
+import 'package:hilmi/utils/open_follow_list.dart';
+import 'package:hilmi/utils/open_followers_list.dart';
 import 'package:hilmi/widgets/auth/auth_top_bar_button.dart';
 import 'package:hilmi/widgets/auth/legal_agreement_sheet.dart';
-import 'package:hilmi/core/home_shell.dart';
-import 'package:hilmi/utils/logout_and_go_home.dart';
-import 'package:hilmi/utils/open_follow_list.dart';
-import 'package:hilmi/utils/open_blacklist_list.dart';
-import 'package:hilmi/utils/open_followers_list.dart';
 import 'package:hilmi/widgets/settings/feedback_dialog.dart';
 import 'package:hilmi/widgets/settings/settings_assets.dart';
 
 /// 设置页（Mine 右上角 Settings）。
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   static const _designWidth = 375.0;
-  static const _appVersionLabel = 'V1.0.0';
-
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
-  String _cacheSizeLabel = '—';
-  bool _clearingCache = false;
-  bool _loggingOut = false;
-  bool _deletingAccount = false;
 
   double _s(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / SettingsScreen._designWidth;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshCacheSize();
-  }
-
-  Future<void> _refreshCacheSize() async {
-    final bytes = await LocalCacheService.estimateCacheBytes();
-    if (!mounted) return;
-    setState(() {
-      _cacheSizeLabel = LocalCacheService.formatCacheSize(bytes);
-    });
-  }
-
-  Future<void> _onClearCache() async {
-    if (_clearingCache) return;
-    setState(() => _clearingCache = true);
-    try {
-      await LocalCacheService.clearAll();
-      await _refreshCacheSize();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cache cleared'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _clearingCache = false);
-    }
-  }
-
-  Future<void> _onDeleteAccount() async {
-    if (_deletingAccount) return;
-
-    final confirmed = await showAuthConfirmDialog(
-      context,
-      title: 'Delete Account',
-      message:
-          'Deleting your account will erase all your data and information '
-          'and cannot be undone. Confirm deletion?',
-      confirmLabel: 'Confirm',
-      cancelLabel: 'Cancel',
-      confirmBackgroundAsset: SettingsAssets.btnConfirm,
-      cancelBackgroundAsset: SettingsAssets.btnCancel,
-      barrierDismissible: false,
-      actionButtonHeight: 40,
-    );
-    if (!confirmed || !mounted) return;
-
-    setState(() => _deletingAccount = true);
-    try {
-      await AuthService.deleteAccount();
-      await LocalCacheService.clearAll();
-      if (!mounted) return;
-      HomeShell.goToDiscoverHome();
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(
-        context,
-        message: messageFromAuthError(error),
-      );
-    } finally {
-      if (mounted) setState(() => _deletingAccount = false);
-    }
-  }
-
-  Future<void> _onLogout() async {
-    if (_loggingOut) return;
-
-    final confirmed = await showAuthConfirmDialog(
-      context,
-      title: 'Log out',
-      message:
-          'After logging out, you will need to log in again to use your account again. Are you sure to log out?',
-      confirmLabel: 'Confirm',
-      cancelLabel: 'Cancel',
-      confirmBackgroundAsset: SettingsAssets.btnConfirm,
-      cancelBackgroundAsset: SettingsAssets.btnCancel,
-      barrierDismissible: false,
-      actionButtonHeight: 40,
-    );
-    if (!confirmed || !mounted) return;
-
-    setState(() => _loggingOut = true);
-    try {
-      await logoutAndGoHome(context);
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(
-        context,
-        message: messageFromAuthError(error),
-      );
-    } finally {
-      if (mounted) setState(() => _loggingOut = false);
-    }
-  }
+      MediaQuery.sizeOf(context).width / _designWidth;
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
+    return GetxScreen<SettingsController>(
+      create: SettingsController.new,
+      builder: (c) => Obx(
+        () => _SettingsBody(
+          c: c,
+          scaleOf: _s,
+          cacheSizeLabel: c.cacheSizeLabel.value,
+          clearingCache: c.clearingCache.value,
+          deletingAccount: c.deletingAccount.value,
+          loggingOut: c.loggingOut.value,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsBody extends StatelessWidget {
+  const _SettingsBody({
+    required this.c,
+    required this.scaleOf,
+    required this.cacheSizeLabel,
+    required this.clearingCache,
+    required this.deletingAccount,
+    required this.loggingOut,
+  });
+
+  final SettingsController c;
+  final double Function(BuildContext context) scaleOf;
+  final String cacheSizeLabel;
+  final bool clearingCache;
+  final bool deletingAccount;
+  final bool loggingOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = scaleOf(context);
     final topInset = MediaQuery.paddingOf(context).top;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-
     final rows = <_SettingsRowData>[
       _SettingsRowData(
         icon: SettingsAssets.icFollow,
@@ -183,18 +105,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _SettingsRowData(
         icon: SettingsAssets.icVersion,
         title: 'Version',
-        trailing: SettingsScreen._appVersionLabel,
+        trailing: SettingsController.appVersionLabel,
       ),
       _SettingsRowData(
         icon: SettingsAssets.icClearCache,
         title: 'Clear cache',
-        trailing: _cacheSizeLabel,
-        onTap: _clearingCache ? null : _onClearCache,
+        trailing: cacheSizeLabel,
+        onTap: clearingCache ? null : () => c.onClearCache(context),
       ),
       _SettingsRowData(
         icon: SettingsAssets.icDeleteAccount,
         title: 'Delete Account',
-        onTap: _deletingAccount ? null : _onDeleteAccount,
+        onTap: deletingAccount ? null : () => c.onDeleteAccount(context),
       ),
     ];
 
@@ -246,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               asset: SettingsAssets.btnBack,
               onTap: () => Navigator.of(context).pop(),
             ),
-            if (_deletingAccount)
+            if (deletingAccount)
               Positioned.fill(
                 child: ColoredBox(
                   color: Colors.black.withValues(alpha: 0.25),
@@ -268,10 +190,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final height = width / _LogoutButton.aspect;
 
                   return GestureDetector(
-                    onTap: (_loggingOut || _deletingAccount) ? null : _onLogout,
+                    onTap: (loggingOut || deletingAccount)
+                        ? null
+                        : () => c.onLogout(context),
                     behavior: HitTestBehavior.opaque,
                     child: Opacity(
-                      opacity: _loggingOut ? 0.65 : 1,
+                      opacity: loggingOut ? 0.65 : 1,
                       child: SizedBox(
                         width: width,
                         height: height,
@@ -284,7 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               height: height,
                               fit: BoxFit.fill,
                             ),
-                            if (_loggingOut)
+                            if (loggingOut)
                               SizedBox(
                                 width: 22 * s,
                                 height: 22 * s,

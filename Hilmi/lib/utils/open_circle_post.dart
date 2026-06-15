@@ -1,3 +1,4 @@
+// 导航打开朋友圈帖子详情页。
 import 'package:flutter/material.dart';
 import 'package:hilmi/models/circle_post.dart';
 import 'package:hilmi/screens/circle_post_detail_screen.dart';

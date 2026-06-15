@@ -1,3 +1,4 @@
+// Storage 路径编码、公开 URL 与 cacheKey 提取工具。
 import 'package:hilmi/config/config.dart';
 
 /// 对 Storage 路径逐段 URL 编码（支持中文文件名、空格）。

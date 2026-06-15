@@ -1,3 +1,4 @@
+// 金币商城 UI 目录条目（配图、文案；支付见 iap_config）。
 import 'package:hilmi/config/iap_config.dart';
 import 'package:hilmi/constants/coins_store_assets.dart';
 

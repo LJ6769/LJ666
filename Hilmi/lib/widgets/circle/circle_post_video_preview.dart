@@ -1,5 +1,7 @@
+// 朋友圈视频封面与详情页按需签名播放。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/circle_video_playback.dart';
+import 'package:hilmi/services/cached_media_file_loader.dart';
 import 'package:hilmi/services/storage_media_url_resolver.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:video_player/video_player.dart';
@@ -71,6 +73,8 @@ class _CirclePostVideoPreviewState extends State<CirclePostVideoPreview> {
   Future<void> _prepare() async {
     if (!widget.playbackEnabled) return;
 
+    final generation = ++_prepareGeneration;
+    final cacheKey = widget.videoPath?.trim() ?? '';
     final url = await _playbackUrl();
     if (url == null ||
         url.isEmpty ||
@@ -79,8 +83,19 @@ class _CirclePostVideoPreviewState extends State<CirclePostVideoPreview> {
       return;
     }
 
-    final generation = ++_prepareGeneration;
-    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+    late final VideoPlayerController controller;
+    try {
+      controller = await CachedMediaFileLoader.createVideoController(
+        url: url,
+        cacheKey: cacheKey.isNotEmpty ? cacheKey : null,
+      );
+    } catch (error) {
+      debugPrint('[CirclePostVideoPreview] Controller failed: $error');
+      if (mounted && generation == _prepareGeneration) {
+        setState(() => _failed = true);
+      }
+      return;
+    }
     _controller = controller;
 
     try {
@@ -135,6 +150,8 @@ class _CirclePostVideoPreviewState extends State<CirclePostVideoPreview> {
       token: _playbackToken,
       onDeactivate: _pauseToPoster,
       onResume: _resumeAfterOverlay,
+      onOverlayPause: _pauseForOverlayOnly,
+      onOverlayResume: _resumeAfterOverlay,
     );
     if (!mounted) return;
 
@@ -161,6 +178,15 @@ class _CirclePostVideoPreviewState extends State<CirclePostVideoPreview> {
       await controller.setVolume(0);
     }
     await CircleVideoPlayback.instance.release(_playbackToken);
+    if (mounted) setState(() => _isPlaying = false);
+  }
+
+  Future<void> _pauseForOverlayOnly() async {
+    final controller = _controller;
+    if (controller != null && controller.value.isInitialized) {
+      await controller.pause();
+      await controller.setVolume(0);
+    }
     if (mounted) setState(() => _isPlaying = false);
   }
 

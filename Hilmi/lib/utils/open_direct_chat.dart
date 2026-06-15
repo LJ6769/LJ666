@@ -1,3 +1,4 @@
+// 导航打开一对一私信聊天页。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/core/hidden_conversations_service.dart';

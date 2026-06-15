@@ -1,226 +1,53 @@
+// 注册第一步：Create Account 表单。
 import 'package:flutter/material.dart';
-import 'package:hilmi/utils/apple_sign_in_flow.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/models/signup_draft.dart';
-import 'package:hilmi/utils/auth_routes.dart';
-import 'package:hilmi/screens/signup_step2_screen.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/signup_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
+import 'package:hilmi/utils/keyboard_dismiss.dart';
 import 'package:hilmi/widgets/auth/auth_fixed_footer.dart';
 import 'package:hilmi/widgets/auth/auth_top_bar_button.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
-import 'package:hilmi/utils/keyboard_dismiss.dart';
 import 'package:hilmi/widgets/auth/login_layout.dart';
 import 'package:hilmi/widgets/auth/signup_assets.dart';
 
 /// 注册页（Create Account，对齐设计稿）。
-class SignupScreen extends StatefulWidget {
+class SignupScreen extends StatelessWidget {
   const SignupScreen({super.key});
 
   static const _cream = Color(0xFFFEFAEF);
-
-  @override
-  State<SignupScreen> createState() => _SignupScreenState();
-}
-
-class _SignupScreenState extends State<SignupScreen> {
-  final _scrollController = ScrollController();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _emailFocus = FocusNode();
-  final _passwordFocus = FocusNode();
-  final _nameFocus = FocusNode();
-  final _emailSectionKey = GlobalKey();
-  final _passwordSectionKey = GlobalKey();
-  final _nameSectionKey = GlobalKey();
-  bool _obscurePassword = true;
-  bool _appleSigningUp = false;
-  double? _stableSafeBottom;
 
   double _s(BuildContext context) =>
       MediaQuery.sizeOf(context).width / LoginLayout.designWidth;
 
   @override
-  void initState() {
-    super.initState();
-    for (final node in [_emailFocus, _passwordFocus, _nameFocus]) {
-      node.addListener(() => _onFieldFocus(node));
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _stableSafeBottom ??= MediaQuery.viewPaddingOf(context).bottom;
-  }
-
-  void _onFieldFocus(FocusNode node) {
-    if (!node.hasFocus) return;
-    final GlobalKey key;
-    if (node == _emailFocus) {
-      key = _emailSectionKey;
-    } else if (node == _passwordFocus) {
-      key = _passwordSectionKey;
-    } else {
-      key = _nameSectionKey;
-    }
-    _scrollFieldIntoView(key);
-  }
-
-  void _scrollFieldIntoView(GlobalKey key) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final sectionContext = key.currentContext;
-      if (sectionContext == null) return;
-      Scrollable.ensureVisible(
-        sectionContext,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        alignment: 0.08,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    _emailFocus.dispose();
-    _passwordFocus.dispose();
-    _nameFocus.dispose();
-    _nameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  List<String> _missingFieldLabels() {
-    final missing = <String>[];
-    if (_emailController.text.trim().isEmpty) missing.add('Email');
-    if (_passwordController.text.isEmpty) missing.add('Password');
-    if (_nameController.text.trim().isEmpty) missing.add('Name');
-    return missing;
-  }
-
-  Future<void> _showEmptyFieldsDialog(List<String> fields) {
-    final message = fields.length == 1
-        ? 'Please enter ${fields.first}'
-        : 'Please enter ${fields.join(', ')}';
-    return showAuthNoticeDialog(context, message: message);
-  }
-
-  Future<void> _onNext() async {
-    dismissKeyboard(context);
-
-    final missing = _missingFieldLabels();
-    if (missing.isNotEmpty) {
-      await _showEmptyFieldsDialog(missing);
-      return;
-    }
-
-    final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
-    if (password.length < 6) {
-      await showAuthNoticeDialog(
-        context,
-        message: 'Password must be at least 6 characters',
-      );
-      return;
-    }
-
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        settings: const RouteSettings(name: AuthRoutes.signupStep2),
-        builder: (_) => SignupStep2Screen(
-          draft: SignupDraft(
-            name: name,
-            email: email,
-            password: password,
-          ),
-        ),
-      ),
+  Widget build(BuildContext context) {
+    return GetxScreen<SignupController>(
+      create: () => SignupController(),
+      builder: (c) => _SignupBody(c: c, scaleOf: _s),
     );
-    // 注册成功时 Step2 会 popUntil 登录页，此处不再 pop(true) 以免跳过登录。
   }
+}
 
-  Future<void> _onAppleSignUp() async {
-    if (_appleSigningUp) return;
-    dismissKeyboard(context);
+class _SignupBody extends StatelessWidget {
+  const _SignupBody({required this.c, required this.scaleOf});
 
-    if (!isAppleSignInSupported) {
-      await showAuthNoticeDialog(
-        context,
-        message: 'Sign up with Apple is only available on iPhone, iPad, and Mac.',
-      );
-      return;
-    }
-
-    setState(() => _appleSigningUp = true);
-    try {
-      final ok = await runAppleSignInFlow(context, includeSignupEula: true);
-      if (!mounted || !ok) return;
-      Navigator.of(context).pop(true);
-    } finally {
-      if (mounted) setState(() => _appleSigningUp = false);
-    }
-  }
+  final SignupController c;
+  final double Function(BuildContext context) scaleOf;
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
+    c.captureStableSafeBottom(context);
+
+    final s = scaleOf(context);
     final topInset = MediaQuery.paddingOf(context).top;
     final safeBottomInset =
-        _stableSafeBottom ?? MediaQuery.viewPaddingOf(context).bottom;
+        c.stableSafeBottom ?? MediaQuery.viewPaddingOf(context).bottom;
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
     final sheetTop = LoginLayout.sheetTop * s;
     final mascotTop = sheetTop -
         LoginLayout.mascotH * s +
         LoginLayout.mascotIntoSheet * s;
-
-    final actionRow = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: _onNext,
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              height: LoginLayout.signInH * s,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Positioned.fill(
-                    child: Image.asset(
-                      SignupAssets.btnNext,
-                      fit: BoxFit.fill,
-                    ),
-                  ),
-                  Text(
-                    'Next',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16 * s,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: 10 * s),
-        GestureDetector(
-          onTap: _appleSigningUp ? null : _onAppleSignUp,
-          child: Image.asset(
-            SignupAssets.btnApple,
-            width: LoginLayout.appleW * s,
-            height: LoginLayout.appleH * s,
-            fit: BoxFit.contain,
-          ),
-        ),
-      ],
-    );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light.copyWith(
@@ -289,7 +116,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               right: 0,
                               bottom: scrollAreaBottom,
                               child: SingleChildScrollView(
-                                controller: _scrollController,
+                                controller: c.scrollController,
                                 physics: const AlwaysScrollableScrollPhysics(
                                   parent: ClampingScrollPhysics(),
                                 ),
@@ -301,14 +128,14 @@ class _SignupScreenState extends State<SignupScreen> {
                                       CrossAxisAlignment.stretch,
                                   children: [
                                     _SignupFieldSection(
-                                      sectionKey: _emailSectionKey,
+                                      sectionKey: c.emailSectionKey,
                                       scale: s,
                                       labelAsset: SignupAssets.icEmail,
                                       child: _AuthTextField(
                                         scale: s,
                                         height: LoginLayout.fieldH * s,
-                                        controller: _emailController,
-                                        focusNode: _emailFocus,
+                                        controller: c.emailController,
+                                        focusNode: c.emailFocus,
                                         hintText: 'Your Email',
                                         scrollPadding: fieldScrollPad,
                                         keyboardType:
@@ -321,50 +148,50 @@ class _SignupScreenState extends State<SignupScreen> {
                                     ),
                                     SizedBox(height: 16 * s),
                                     _SignupFieldSection(
-                                      sectionKey: _passwordSectionKey,
+                                      sectionKey: c.passwordSectionKey,
                                       scale: s,
                                       labelAsset: SignupAssets.icPassword,
-                                      child: _AuthTextField(
-                                        scale: s,
-                                        height: LoginLayout.fieldH * s,
-                                        controller: _passwordController,
-                                        focusNode: _passwordFocus,
-                                        hintText: 'Your Password',
-                                        scrollPadding: fieldScrollPad,
-                                        obscureText: _obscurePassword,
-                                        textInputAction: TextInputAction.next,
-                                        autofillHints: const [
-                                          AutofillHints.password,
-                                        ],
-                                        suffix: GestureDetector(
-                                          onTap: () => setState(
-                                            () => _obscurePassword =
-                                                !_obscurePassword,
-                                          ),
-                                          child: Image.asset(
-                                            _obscurePassword
-                                                ? SignupAssets.icEyeOff
-                                                : SignupAssets.icEye,
-                                            width: LoginLayout.eyeSize * s,
-                                            height: LoginLayout.eyeSize * s,
+                                      child: Obx(
+                                        () => _AuthTextField(
+                                          scale: s,
+                                          height: LoginLayout.fieldH * s,
+                                          controller: c.passwordController,
+                                          focusNode: c.passwordFocus,
+                                          hintText: 'Your Password',
+                                          scrollPadding: fieldScrollPad,
+                                          obscureText: c.obscurePassword.value,
+                                          textInputAction: TextInputAction.next,
+                                          autofillHints: const [
+                                            AutofillHints.password,
+                                          ],
+                                          suffix: GestureDetector(
+                                            onTap: () => c.obscurePassword.value =
+                                                !c.obscurePassword.value,
+                                            child: Image.asset(
+                                              c.obscurePassword.value
+                                                  ? SignupAssets.icEyeOff
+                                                  : SignupAssets.icEye,
+                                              width: LoginLayout.eyeSize * s,
+                                              height: LoginLayout.eyeSize * s,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
                                     SizedBox(height: 16 * s),
                                     _SignupFieldSection(
-                                      sectionKey: _nameSectionKey,
+                                      sectionKey: c.nameSectionKey,
                                       scale: s,
                                       labelAsset: SignupAssets.icName,
                                       child: _AuthTextField(
                                         scale: s,
                                         height: LoginLayout.fieldH * s,
-                                        controller: _nameController,
-                                        focusNode: _nameFocus,
+                                        controller: c.nameController,
+                                        focusNode: c.nameFocus,
                                         hintText: 'Your Name',
                                         scrollPadding: fieldScrollPad,
                                         textInputAction: TextInputAction.done,
-                                        onSubmitted: (_) => _onNext(),
+                                        onSubmitted: (_) => c.onNext(context),
                                       ),
                                     ),
                                   ],
@@ -375,7 +202,56 @@ class _SignupScreenState extends State<SignupScreen> {
                               scale: s,
                               safeBottomInset: safeBottomInset,
                               keyboardVisible: keyboardUp,
-                              actionRow: actionRow,
+                              actionRow: Obx(
+                                () {
+                                  final appleSigningUp = c.appleSigningUp.value;
+                                  return Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () => c.onNext(context),
+                                          behavior: HitTestBehavior.opaque,
+                                          child: SizedBox(
+                                            height: LoginLayout.signInH * s,
+                                            child: Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                Positioned.fill(
+                                                  child: Image.asset(
+                                                    SignupAssets.btnNext,
+                                                    fit: BoxFit.fill,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  'Next',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16 * s,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 10 * s),
+                                      GestureDetector(
+                                        onTap: appleSigningUp
+                                            ? null
+                                            : () => c.onAppleSignUp(context),
+                                        child: Image.asset(
+                                          SignupAssets.btnApple,
+                                          width: LoginLayout.appleW * s,
+                                          height: LoginLayout.appleH * s,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                             ),
                           ],
                         );

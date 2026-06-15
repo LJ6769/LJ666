@@ -1,276 +1,50 @@
+// 注册第二步：头像与简介完善。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/constants/legal_documents.dart';
-import 'package:hilmi/core/auth_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:hilmi/core/eula_service.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/signup_step2_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/models/signup_draft.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
-import 'package:hilmi/widgets/auth/legal_agreement_sheet.dart';
-import 'package:hilmi/utils/auth_error_message.dart';
-import 'package:hilmi/utils/apple_sign_in_flow.dart';
-import 'package:hilmi/utils/auth_routes.dart';
-import 'package:hilmi/utils/gallery_media_picker.dart';
-import 'package:hilmi/utils/keyboard_dismiss.dart';
 import 'package:hilmi/widgets/auth/auth_fixed_footer.dart';
 import 'package:hilmi/widgets/auth/auth_top_bar_button.dart';
 import 'package:hilmi/widgets/auth/login_layout.dart';
 import 'package:hilmi/widgets/auth/signup_assets.dart';
 import 'package:hilmi/widgets/auth/signup_avatar_preview.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// 注册第二步：头像 + 简介（对齐设计稿）。
-class SignupStep2Screen extends StatefulWidget {
+class SignupStep2Screen extends StatelessWidget {
   const SignupStep2Screen({super.key, required this.draft});
 
   final SignupDraft draft;
 
   static const _cream = Color(0xFFFEFAEF);
 
-  @override
-  State<SignupStep2Screen> createState() => _SignupStep2ScreenState();
-}
-
-class _SignupStep2ScreenState extends State<SignupStep2Screen> {
-  final _scrollController = ScrollController();
-  final _introController = TextEditingController();
-  final _introFocus = FocusNode();
-  final _introSectionKey = GlobalKey();
-  final _galleryPicker = GalleryMediaPicker();
-  String? _avatarPath;
-  bool _submitting = false;
-  double? _stableSafeBottom;
-
   double _s(BuildContext context) =>
       MediaQuery.sizeOf(context).width / LoginLayout.designWidth;
 
-  late final VoidCallback _introFocusListener = _onIntroFocus;
-
   @override
-  void initState() {
-    super.initState();
-    _introFocus.addListener(_introFocusListener);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _stableSafeBottom ??= MediaQuery.viewPaddingOf(context).bottom;
-  }
-
-  void _blurIntro() {
-    if (_introFocus.hasFocus) {
-      _introFocus.unfocus();
-    }
-    dismissKeyboard(context);
-  }
-
-  void _onIntroFocus() {
-    if (!_introFocus.hasFocus) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final sectionContext = _introSectionKey.currentContext;
-      if (sectionContext == null) return;
-      Scrollable.ensureVisible(
-        sectionContext,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        alignment: 0.08,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _introFocus.removeListener(_introFocusListener);
-    _scrollController.dispose();
-    _introFocus.dispose();
-    _introController.dispose();
-    super.dispose();
-  }
-
-  List<String> _missingFieldLabels() {
-    final missing = <String>[];
-    if (_avatarPath == null || _avatarPath!.isEmpty) missing.add('Avatar');
-    if (_introController.text.trim().isEmpty) missing.add('Intro');
-    return missing;
-  }
-
-  String _emptyFieldMessage(String field) {
-    if (field == 'Avatar') return 'Please select Avatar';
-    return 'Please enter $field';
-  }
-
-  Future<void> _showEmptyFieldsDialog(List<String> fields) {
-    final message = fields.length == 1
-        ? _emptyFieldMessage(fields.first)
-        : fields.map(_emptyFieldMessage).join('\n');
-    return showAuthNoticeDialog(context, message: message);
-  }
-
-  Future<ImageSource?> _chooseAvatarSource() async {
-    final s = _s(context);
-    return showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: SignupStep2Screen._cream,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16 * s)),
-        side: const BorderSide(color: Colors.black, width: 2),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: Text(
-                'Photo Library',
-                style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: Text(
-                'Camera',
-                style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            SizedBox(height: 8 * s),
-          ],
-        ),
-      ),
+  Widget build(BuildContext context) {
+    return GetxScreen<SignupStep2Controller>(
+      create: () => SignupStep2Controller(draft: draft),
+      builder: (c) => _SignupStep2Body(c: c, scaleOf: _s),
     );
   }
+}
 
-  Future<void> _pickAvatar() async {
-    final source = await _chooseAvatarSource();
-    if (source == null || !mounted) return;
+class _SignupStep2Body extends StatelessWidget {
+  const _SignupStep2Body({required this.c, required this.scaleOf});
 
-    final files = await _galleryPicker.pickImages(limit: 1, source: source);
-    if (!mounted) return;
-    if (files == null) {
-      await showAuthNoticeDialog(
-        context,
-        message: source == ImageSource.camera
-            ? 'Camera access is required.'
-            : 'Photo library access is required.',
-      );
-      return;
-    }
-    if (files.isEmpty) return;
-
-    if (!mounted) return;
-    setState(() => _avatarPath = files.first.path);
-  }
-
-  void _popToLogin() {
-    Navigator.of(context).popUntil(
-      (route) => route.settings.name == AuthRoutes.login,
-    );
-  }
-
-  Future<void> _onAppleSignUp() async {
-    if (_submitting) return;
-    _blurIntro();
-
-    if (!isAppleSignInSupported) {
-      await showAuthNoticeDialog(
-        context,
-        message: 'Sign up with Apple is only available on iPhone, iPad, and Mac.',
-      );
-      return;
-    }
-
-    setState(() => _submitting = true);
-    try {
-      final ok = await runAppleSignInFlow(context, includeSignupEula: true);
-      if (!mounted || !ok) return;
-      _popToLogin();
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  Future<void> _onSignUp() async {
-    if (_submitting) return;
-    _blurIntro();
-
-    final missing = _missingFieldLabels();
-    if (missing.isNotEmpty) {
-      await _showEmptyFieldsDialog(missing);
-      if (mounted) _blurIntro();
-      return;
-    }
-
-    if (!mounted) return;
-
-    setState(() => _submitting = true);
-
-    var eulaAccepted =
-        await EulaService.hasAcceptedSignup(email: widget.draft.email);
-    if (!eulaAccepted) {
-      if (!mounted) return;
-      final agreedEula = await LegalAgreementSheet.show(
-        context,
-        title: 'EULA',
-        content: LegalDocuments.userAgreement,
-      );
-      if (!mounted) return;
-      _blurIntro();
-      if (!agreedEula) {
-        if (mounted) setState(() => _submitting = false);
-        return;
-      }
-      eulaAccepted = true;
-    }
-
-    if (!mounted) {
-      setState(() => _submitting = false);
-      return;
-    }
-    try {
-      await AuthService.completeSignUp(
-        email: widget.draft.email,
-        password: widget.draft.password,
-        displayName: widget.draft.name,
-        bio: _introController.text.trim(),
-        avatarLocalPath: _avatarPath,
-        eulaAccepted: eulaAccepted,
-      );
-      if (!mounted) return;
-      await showAuthNoticeDialog(
-        context,
-        message: 'Account created. Please sign in.',
-      );
-      if (!mounted) return;
-      _popToLogin();
-    } on AuthException catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(context, message: messageFromAuthError(error));
-    } on StateError catch (error) {
-      if (!mounted) return;
-      final msg = messageFromAuthError(error);
-      await showAuthNoticeDialog(context, message: msg);
-      if (!mounted) return;
-      _popToLogin();
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(context, message: messageFromAuthError(error));
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
+  final SignupStep2Controller c;
+  final double Function(BuildContext context) scaleOf;
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
+    c.captureStableSafeBottom(context);
+
+    final s = scaleOf(context);
     final topInset = MediaQuery.paddingOf(context).top;
     final safeBottomInset =
-        _stableSafeBottom ?? MediaQuery.viewPaddingOf(context).bottom;
+        c.stableSafeBottom ?? MediaQuery.viewPaddingOf(context).bottom;
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
     final sheetTop = LoginLayout.sheetTop * s;
@@ -279,67 +53,6 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
         LoginLayout.mascotIntoSheet * s;
     final avatarSize = LoginLayout.avatarSize * s;
     final cameraSize = LoginLayout.avatarCameraSize * s;
-
-    final actionRow = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => _blurIntro(),
-            child: GestureDetector(
-              onTap: _submitting ? null : _onSignUp,
-              behavior: HitTestBehavior.opaque,
-              child: Opacity(
-                opacity: _submitting ? 0.65 : 1,
-                child: SizedBox(
-                  height: LoginLayout.signInH * s,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Positioned.fill(
-                        child: Image.asset(
-                          SignupAssets.btnNext,
-                          fit: BoxFit.fill,
-                        ),
-                      ),
-                      if (_submitting)
-                        SizedBox(
-                          width: 22 * s,
-                          height: 22 * s,
-                          child: const CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      else
-                        Text(
-                          'Sign up',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16 * s,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: 10 * s),
-        GestureDetector(
-          onTap: _submitting ? null : _onAppleSignUp,
-          child: Image.asset(
-            SignupAssets.btnApple,
-            width: LoginLayout.appleW * s,
-            height: LoginLayout.appleH * s,
-            fit: BoxFit.contain,
-          ),
-        ),
-      ],
-    );
 
     return PopScope(
       canPop: true,
@@ -410,7 +123,7 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
                               right: 0,
                               bottom: scrollAreaBottom,
                               child: SingleChildScrollView(
-                                controller: _scrollController,
+                                controller: c.scrollController,
                                 physics: const AlwaysScrollableScrollPhysics(
                                   parent: ClampingScrollPhysics(),
                                 ),
@@ -428,46 +141,51 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
                                     SizedBox(height: 10 * s),
                                     Center(
                                       child: GestureDetector(
-                                        onTap: _pickAvatar,
+                                        onTap: () => c.pickAvatar(context, s),
                                         behavior: HitTestBehavior.opaque,
                                         child: SizedBox(
                                           width: avatarSize,
                                           height: avatarSize,
-                                          child: Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              if (_avatarPath != null)
-                                                SignupAvatarPreview(
-                                                  filePath: _avatarPath!,
-                                                  size: avatarSize,
-                                                  borderRadius: 24 * s,
-                                                  placeholder:
-                                                      _AvatarPlaceholder(
-                                                    size: avatarSize * 0.88,
+                                          child: Obx(
+                                            () {
+                                              final avatarPath = c.avatarPath.value;
+                                              return Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  if (avatarPath != null)
+                                                    SignupAvatarPreview(
+                                                      filePath: avatarPath,
+                                                      size: avatarSize,
+                                                      borderRadius: 24 * s,
+                                                      placeholder:
+                                                          _AvatarPlaceholder(
+                                                        size: avatarSize * 0.88,
+                                                      ),
+                                                    )
+                                                  else
+                                                    _AvatarPlaceholder(
+                                                      size: avatarSize * 0.88,
+                                                    ),
+                                                  Positioned(
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    child: Image.asset(
+                                                      SignupAssets.icCamera,
+                                                      width: cameraSize,
+                                                      height: cameraSize,
+                                                      fit: BoxFit.contain,
+                                                    ),
                                                   ),
-                                                )
-                                              else
-                                                _AvatarPlaceholder(
-                                                  size: avatarSize * 0.88,
-                                                ),
-                                              Positioned(
-                                                right: 0,
-                                                bottom: 0,
-                                                child: Image.asset(
-                                                  SignupAssets.icCamera,
-                                                  width: cameraSize,
-                                                  height: cameraSize,
-                                                  fit: BoxFit.contain,
-                                                ),
-                                              ),
-                                            ],
+                                                ],
+                                              );
+                                            },
                                           ),
                                         ),
                                       ),
                                     ),
                                     SizedBox(height: 22 * s),
                                     Column(
-                                      key: _introSectionKey,
+                                      key: c.introSectionKey,
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
                                       children: [
@@ -476,54 +194,59 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
                                           asset: SignupAssets.labelIntro,
                                         ),
                                         SizedBox(height: 8 * s),
-                                        Container(
-                                          height: LoginLayout.introFieldH * s,
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: 14 * s,
-                                            vertical: 12 * s,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius:
-                                                BorderRadius.circular(14 * s),
-                                            border: Border.all(
-                                              color: Colors.black,
-                                              width: 2.5,
+                                        Obx(
+                                          () => Container(
+                                            height: LoginLayout.introFieldH * s,
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 14 * s,
+                                              vertical: 12 * s,
                                             ),
-                                          ),
-                                          child: TextField(
-                                            controller: _introController,
-                                            focusNode: _introFocus,
-                                            readOnly: _submitting,
-                                            onTapOutside: (_) => _blurIntro(),
-                                            onEditingComplete: _blurIntro,
-                                            onSubmitted: (_) => _blurIntro(),
-                                            textInputAction:
-                                                TextInputAction.done,
-                                            scrollPadding: EdgeInsets.only(
-                                              bottom: fieldScrollPad,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius:
+                                                  BorderRadius.circular(14 * s),
+                                              border: Border.all(
+                                                color: Colors.black,
+                                                width: 2.5,
+                                              ),
                                             ),
-                                            maxLines: null,
-                                            expands: true,
-                                            textAlignVertical:
-                                                TextAlignVertical.top,
-                                            style: TextStyle(
-                                              fontSize: 15 * s,
-                                              fontWeight: FontWeight.w700,
-                                              color: Colors.black,
-                                              height: 1.35,
-                                            ),
-                                            decoration: InputDecoration(
-                                              isDense: true,
-                                              border: InputBorder.none,
-                                              hintText:
-                                                  'Briefly introduce yourself...',
-                                              hintStyle: TextStyle(
+                                            child: TextField(
+                                              controller: c.introController,
+                                              focusNode: c.introFocus,
+                                              readOnly: c.submitting.value,
+                                              onTapOutside: (_) =>
+                                                  c.blurIntro(context),
+                                              onEditingComplete: () =>
+                                                  c.blurIntro(context),
+                                              onSubmitted: (_) =>
+                                                  c.blurIntro(context),
+                                              textInputAction:
+                                                  TextInputAction.done,
+                                              scrollPadding: EdgeInsets.only(
+                                                bottom: fieldScrollPad,
+                                              ),
+                                              maxLines: null,
+                                              expands: true,
+                                              textAlignVertical:
+                                                  TextAlignVertical.top,
+                                              style: TextStyle(
                                                 fontSize: 15 * s,
                                                 fontWeight: FontWeight.w700,
-                                                color: Colors.black
-                                                    .withValues(alpha: 0.35),
+                                                color: Colors.black,
                                                 height: 1.35,
+                                              ),
+                                              decoration: InputDecoration(
+                                                isDense: true,
+                                                border: InputBorder.none,
+                                                hintText:
+                                                    'Briefly introduce yourself...',
+                                                hintStyle: TextStyle(
+                                                  fontSize: 15 * s,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.35),
+                                                  height: 1.35,
+                                                ),
                                               ),
                                             ),
                                           ),
@@ -538,7 +261,78 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
                               scale: s,
                               safeBottomInset: safeBottomInset,
                               keyboardVisible: keyboardUp,
-                              actionRow: actionRow,
+                              actionRow: Obx(
+                                () {
+                                  final submitting = c.submitting.value;
+                                  return Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Listener(
+                                          behavior: HitTestBehavior.opaque,
+                                          onPointerDown: (_) =>
+                                              c.blurIntro(context),
+                                          child: GestureDetector(
+                                            onTap: submitting
+                                                ? null
+                                                : () => c.onSignUp(context),
+                                            behavior: HitTestBehavior.opaque,
+                                            child: Opacity(
+                                              opacity: submitting ? 0.65 : 1,
+                                              child: SizedBox(
+                                                height: LoginLayout.signInH * s,
+                                                child: Stack(
+                                                  alignment: Alignment.center,
+                                                  children: [
+                                                    Positioned.fill(
+                                                      child: Image.asset(
+                                                        SignupAssets.btnNext,
+                                                        fit: BoxFit.fill,
+                                                      ),
+                                                    ),
+                                                    if (submitting)
+                                                      SizedBox(
+                                                        width: 22 * s,
+                                                        height: 22 * s,
+                                                        child:
+                                                            const CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: Colors.white,
+                                                        ),
+                                                      )
+                                                    else
+                                                      Text(
+                                                        'Sign up',
+                                                        style: TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 16 * s,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 10 * s),
+                                      GestureDetector(
+                                        onTap: submitting
+                                            ? null
+                                            : () => c.onAppleSignUp(context),
+                                        child: Image.asset(
+                                          SignupAssets.btnApple,
+                                          width: LoginLayout.appleW * s,
+                                          height: LoginLayout.appleH * s,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                             ),
                           ],
                         );
@@ -582,7 +376,7 @@ class _SignupStep2ScreenState extends State<SignupStep2Screen> {
               width: LoginLayout.signUpW * s,
               height: LoginLayout.signUpH * s,
               asset: SignupAssets.btnSignIn,
-              onTap: _popToLogin,
+              onTap: () => c.popToLogin(context),
             ),
           ],
         ),

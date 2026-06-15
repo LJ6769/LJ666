@@ -1,322 +1,174 @@
+// 编辑资料页：头像、昵称、简介保存。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hilmi/core/auth_service.dart';
+import 'package:get/get.dart';
+import 'package:hilmi/controllers/edit_profile_controller.dart';
+import 'package:hilmi/core/getx/getx_screen.dart';
 import 'package:hilmi/models/user_profile.dart';
 import 'package:hilmi/splash_page.dart';
-import 'package:hilmi/utils/auth_error_message.dart';
-import 'package:hilmi/utils/gallery_media_picker.dart';
 import 'package:hilmi/utils/keyboard_dismiss.dart';
-import 'package:hilmi/widgets/auth/auth_notice_dialog.dart';
 import 'package:hilmi/widgets/auth/auth_top_bar_button.dart';
 import 'package:hilmi/widgets/auth/signup_assets.dart';
 import 'package:hilmi/widgets/auth/signup_avatar_preview.dart';
 import 'package:hilmi/widgets/common/cached_media_image.dart';
 import 'package:hilmi/widgets/profile/profile_edit_assets.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// 编辑资料（头像 / 昵称 / 简介）。
-class EditProfileScreen extends StatefulWidget {
+class EditProfileScreen extends StatelessWidget {
   const EditProfileScreen({super.key});
-
-  static const _designWidth = 375.0;
-
-  @override
-  State<EditProfileScreen> createState() => _EditProfileScreenState();
-}
-
-class _EditProfileScreenState extends State<EditProfileScreen> {
-  final _nameController = TextEditingController();
-  final _introController = TextEditingController();
-  final _introFocus = FocusNode();
-  final _scrollController = ScrollController();
-  final _galleryPicker = GalleryMediaPicker();
-
-  UserProfile? _profile;
-  String? _avatarLocalPath;
-  bool _loading = true;
-  bool _saving = false;
-
-  double _s(BuildContext context) =>
-      MediaQuery.sizeOf(context).width / EditProfileScreen._designWidth;
-
-  @override
-  void initState() {
-    super.initState();
-    _introFocus.addListener(_onIntroFocusChange);
-    _loadProfile();
-  }
-
-  @override
-  void dispose() {
-    _introFocus.removeListener(_onIntroFocusChange);
-    _scrollController.dispose();
-    _nameController.dispose();
-    _introController.dispose();
-    _introFocus.dispose();
-    super.dispose();
-  }
-
-  void _onIntroFocusChange() {
-    if (!_introFocus.hasFocus) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  Future<void> _loadProfile() async {
-    final profile =
-        await AuthService.loadCurrentProfile(forceRefresh: true);
-    if (!mounted) return;
-    setState(() {
-      _profile = profile;
-      _loading = false;
-      _nameController.text = profile?.displayName ?? '';
-      _introController.text = profile?.bio?.trim() ?? '';
-    });
-  }
-
-  Future<ImageSource?> _chooseAvatarSource() async {
-    final s = _s(context);
-    return showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: splashBackground,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16 * s)),
-        side: const BorderSide(color: Colors.black, width: 2),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: Text(
-                'Photo Library',
-                style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: Text(
-                'Camera',
-                style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700),
-              ),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickAvatar() async {
-    final source = await _chooseAvatarSource();
-    if (source == null || !mounted) return;
-
-    final files = await _galleryPicker.pickImages(limit: 1, source: source);
-    if (!mounted) return;
-    if (files == null) {
-      await showAuthNoticeDialog(
-        context,
-        message: source == ImageSource.camera
-            ? 'Camera access is required.'
-            : 'Photo library access is required.',
-      );
-      return;
-    }
-    if (files.isEmpty) return;
-
-    setState(() => _avatarLocalPath = files.first.path);
-  }
-
-  Future<void> _onSave() async {
-    if (_saving) return;
-    dismissKeyboard(context);
-
-    final name = _nameController.text.trim();
-    if (name.isEmpty) {
-      await showAuthNoticeDialog(context, message: 'Please enter Name');
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      await AuthService.updateCurrentProfile(
-        displayName: name,
-        bio: _introController.text.trim(),
-        avatarLocalPath: _avatarLocalPath,
-      );
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (error) {
-      if (!mounted) return;
-      await showAuthNoticeDialog(
-        context,
-        message: messageFromAuthError(error),
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final s = _s(context);
-    final media = MediaQuery.of(context);
-    // viewPadding 不随键盘变化；padding.bottom 键盘弹出时会变 0 导致 Save 位移。
-    final topInset = media.viewPadding.top;
-    final bottomSafe = media.viewPadding.bottom;
-    final keyboardHeight = media.viewInsets.bottom;
-    final saveBarHeight = 56 * s + 16 * s + bottomSafe;
-    final scrollBottomPad = keyboardHeight > 0
-        ? keyboardHeight + 24 * s
-        : saveBarHeight + 16 * s;
+    return GetxScreen<EditProfileController>(
+      create: EditProfileController.new,
+      builder: (c) => Obx(() {
+        final s = c.scale(context);
+        final media = MediaQuery.of(context);
+        final topInset = media.viewPadding.top;
+        final bottomSafe = media.viewPadding.bottom;
+        final keyboardHeight = media.viewInsets.bottom;
+        final saveBarHeight = 56 * s + 16 * s + bottomSafe;
+        final scrollBottomPad = keyboardHeight > 0
+            ? keyboardHeight + 24 * s
+            : saveBarHeight + 16 * s;
+        final loading = c.loading.value;
+        final saving = c.saving.value;
+        final profile = c.profile.value;
+        final avatarLocalPath = c.avatarLocalPath.value;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: splashBackground,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
-      child: Scaffold(
-        backgroundColor: splashBackground,
-        resizeToAvoidBottomInset: false,
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(
-                  color: Color(0xFFD14D4D),
-                  strokeWidth: 2,
-                ),
-              )
-            : Stack(
-                children: [
-                  Positioned.fill(
-                    child: SingleChildScrollView(
-                      controller: _scrollController,
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.fromLTRB(
-                        20 * s,
-                        topInset + 56 * s,
-                        20 * s,
-                        scrollBottomPad,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _SectionLabel(
-                            scale: s,
-                            asset: ProfileEditAssets.labelAvatar,
-                          ),
-                          SizedBox(height: 12 * s),
-                          Center(child: _buildAvatar(s)),
-                          SizedBox(height: 24 * s),
-                          _SectionLabel(
-                            scale: s,
-                            asset: ProfileEditAssets.labelName,
-                          ),
-                          SizedBox(height: 10 * s),
-                          _OutlinedField(
-                            scale: s,
-                            height: 52 * s,
-                            child: TextField(
-                              controller: _nameController,
-                              onTapOutside: (_) =>
-                                  dismissKeyboard(context),
-                              style: _fieldTextStyle(s),
-                              decoration: _fieldDecoration(s),
-                            ),
-                          ),
-                          SizedBox(height: 22 * s),
-                          _SectionLabel(
-                            scale: s,
-                            asset: ProfileEditAssets.labelIntro,
-                          ),
-                          SizedBox(height: 10 * s),
-                          _IntroField(
-                            scale: s,
-                            controller: _introController,
-                            focusNode: _introFocus,
-                          ),
-                        ],
-                      ),
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+            systemNavigationBarColor: splashBackground,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          ),
+          child: Scaffold(
+            backgroundColor: splashBackground,
+            resizeToAvoidBottomInset: false,
+            body: loading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFD14D4D),
+                      strokeWidth: 2,
                     ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: topInset + 8 * s,
-                    child: Text(
-                      'Edit Profile',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18 * s,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.black,
+                  )
+                : Stack(
+                    children: [
+                      Positioned.fill(
+                        child: SingleChildScrollView(
+                          controller: c.scrollController,
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: EdgeInsets.fromLTRB(
+                            20 * s,
+                            topInset + 56 * s,
+                            20 * s,
+                            scrollBottomPad,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _SectionLabel(
+                                scale: s,
+                                asset: ProfileEditAssets.labelAvatar,
+                              ),
+                              SizedBox(height: 12 * s),
+                              Center(
+                                child: _buildAvatar(
+                                  c,
+                                  s,
+                                  profile,
+                                  avatarLocalPath,
+                                  () => c.pickAvatar(context),
+                                ),
+                              ),
+                              SizedBox(height: 24 * s),
+                              _SectionLabel(
+                                scale: s,
+                                asset: ProfileEditAssets.labelName,
+                              ),
+                              SizedBox(height: 10 * s),
+                              _OutlinedField(
+                                scale: s,
+                                height: 52 * s,
+                                child: TextField(
+                                  controller: c.nameController,
+                                  onTapOutside: (_) =>
+                                      dismissKeyboard(context),
+                                  style: c.fieldTextStyle(s),
+                                  decoration: c.fieldDecoration(s),
+                                ),
+                              ),
+                              SizedBox(height: 22 * s),
+                              _SectionLabel(
+                                scale: s,
+                                asset: ProfileEditAssets.labelIntro,
+                              ),
+                              SizedBox(height: 10 * s),
+                              _IntroField(
+                                scale: s,
+                                controller: c.introController,
+                                focusNode: c.introFocus,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: topInset + 8 * s,
+                        child: Text(
+                          'Edit Profile',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 18 * s,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                      AuthTopBarButton(
+                        top: topInset + 4 * s,
+                        left: 16 * s,
+                        size: 40 * s,
+                        asset: ProfileEditAssets.btnBack,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                      Positioned(
+                        left: 20 * s,
+                        right: 20 * s,
+                        bottom: 16 * s + bottomSafe,
+                        child: _SaveButton(
+                          scale: s,
+                          saving: saving,
+                          onTap: () => c.onSave(context),
+                        ),
+                      ),
+                    ],
                   ),
-                  AuthTopBarButton(
-                    top: topInset + 4 * s,
-                    left: 16 * s,
-                    size: 40 * s,
-                    asset: ProfileEditAssets.btnBack,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                  Positioned(
-                    left: 20 * s,
-                    right: 20 * s,
-                    bottom: 16 * s + bottomSafe,
-                    child: _SaveButton(
-                      scale: s,
-                      saving: _saving,
-                      onTap: _onSave,
-                    ),
-                  ),
-                ],
-              ),
-      ),
+          ),
+        );
+      }),
     );
   }
 
-  TextStyle _fieldTextStyle(double s) => TextStyle(
-        fontSize: 15 * s,
-        fontWeight: FontWeight.w600,
-        color: Colors.black,
-        height: 1.35,
-      );
-
-  InputDecoration _fieldDecoration(double s, {String? hint}) =>
-      InputDecoration(
-        isDense: true,
-        border: InputBorder.none,
-        hintText: hint,
-        hintStyle: TextStyle(
-          fontSize: 15 * s,
-          fontWeight: FontWeight.w600,
-          color: Colors.black.withValues(alpha: 0.35),
-          height: 1.35,
-        ),
-      );
-
-  Widget _buildAvatar(double s) {
+  Widget _buildAvatar(
+    EditProfileController c,
+    double s,
+    UserProfile? profile,
+    String? avatarLocalPath,
+    VoidCallback onPickAvatar,
+  ) {
     final size = 132 * s;
     final radius = 22 * s;
     final cameraSize = 44 * s;
-    final profile = _profile;
 
     Widget avatarChild;
-    if (_avatarLocalPath != null) {
+    if (avatarLocalPath != null) {
       avatarChild = SignupAvatarPreview(
-        filePath: _avatarLocalPath!,
+        filePath: avatarLocalPath,
         size: size,
         borderRadius: radius,
         placeholder: _AvatarPlaceholder(size: size * 0.88),
@@ -339,7 +191,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
 
     return GestureDetector(
-      onTap: _pickAvatar,
+      onTap: onPickAvatar,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: size,

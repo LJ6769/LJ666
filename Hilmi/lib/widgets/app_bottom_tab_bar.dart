@@ -1,3 +1,4 @@
+// 应用底部四栏导航栏（首页/Circle/消息/我的）。
 import 'package:flutter/material.dart';
 
 /// 应用底部四栏导航（首页 / Circle / 消息 / 我的）。
@@ -6,19 +7,14 @@ class AppBottomTabBar extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.tabAssets,
+    required this.tabAssetsOff,
     required this.onSelected,
   });
 
   final int selectedIndex;
   final List<String> tabAssets;
+  final List<String> tabAssetsOff;
   final ValueChanged<int> onSelected;
-
-  static const _inactiveMatrix = <double>[
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0, 0, 0, 0.45, 0,
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -38,20 +34,13 @@ class AppBottomTabBar extends StatelessWidget {
         child: Row(
           children: List.generate(tabAssets.length, (index) {
             final isSelected = index == selectedIndex;
-            Widget icon = Image.asset(
-              tabAssets[index],
+            final icon = Image.asset(
+              isSelected ? tabAssets[index] : tabAssetsOff[index],
               width: 112,
               height: 70,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
             );
-
-            if (!isSelected) {
-              icon = ColorFiltered(
-                colorFilter: const ColorFilter.matrix(_inactiveMatrix),
-                child: icon,
-              );
-            }
 
             return Expanded(
               child: GestureDetector(

@@ -1,3 +1,4 @@
+// 导航打开发帖页；未登录先跳登录。
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/auth_service.dart';
 import 'package:hilmi/screens/circle_edit_post_screen.dart';

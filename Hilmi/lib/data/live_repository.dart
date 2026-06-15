@@ -1,3 +1,4 @@
+// 直播间详情拉取（进房时才签名 video URL）。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/config/config.dart';
@@ -32,8 +33,11 @@ class LiveRepository {
     }
   }
 
-  /// 进房后拉取详情（含封面/头像/视频签名 URL）。
-  Future<LiveStreamDetail?> fetchRoomDetail(String liveId) async {
+  /// 进房后拉取详情（含头像/视频签名 URL；封面默认签名，可关闭）。
+  Future<LiveStreamDetail?> fetchRoomDetail(
+    String liveId, {
+    bool includeCover = true,
+  }) async {
     final client = AppBootstrap.client;
     if (!AppBootstrap.isReady || client == null) return null;
     if (!isUuid(liveId)) return null;
@@ -64,8 +68,9 @@ class LiveRepository {
 
       final map = Map<String, dynamic>.from(row);
       final profile = _readEmbeddedProfile(map['User']);
+      final coverPath = map['cover_path'] as String?;
       final paths = <String?>[
-        map['cover_path'] as String?,
+        if (includeCover) coverPath,
         map['video_path'] as String?,
         profile?['avatar_path'] as String?,
       ];
@@ -77,10 +82,9 @@ class LiveRepository {
       return LiveStreamDetail(
         id: map['id'] as String,
         description: map['description'] as String?,
-        coverUrl: StorageMediaUrlResolver.pickNullable(
-          signed,
-          map['cover_path'] as String?,
-        ),
+        coverUrl: includeCover
+            ? StorageMediaUrlResolver.pickNullable(signed, coverPath)
+            : null,
         videoUrl: StorageMediaUrlResolver.pickNullable(
           signed,
           map['video_path'] as String?,

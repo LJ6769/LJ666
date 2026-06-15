@@ -9,9 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-# 目标：720p H.264，单条通常 < 15MB（大源文件会明显缩小）
+# 默认：720p H.264（小体积场景）
 DEFAULT_MAX_HEIGHT = 720
 DEFAULT_CRF = 28
+# 直播 / 朋友圈：全屏或大图播放，提高分辨率减轻发糊
+HIGH_QUALITY_MAX_HEIGHT = 1080
+HIGH_QUALITY_CRF = 23
+HIGH_QUALITY_STORAGE_PREFIXES = ("live-streams/", "moments/")
 DEFAULT_PRESET = "medium"
 DEFAULT_AUDIO_BITRATE = "128k"
 DEFAULT_WARN_SIZE_MB = 20.0
@@ -94,6 +98,17 @@ def extract_poster_frame(
         str(output_path),
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def compress_params_for_storage_path(storage_path: str) -> tuple[int, int]:
+    """按 Storage 路径选择压缩参数（直播、朋友圈用高画质）。"""
+    normalized = storage_path.replace("\\", "/")
+    if any(
+        normalized.startswith(prefix) or f"/{prefix}" in normalized
+        for prefix in HIGH_QUALITY_STORAGE_PREFIXES
+    ):
+        return HIGH_QUALITY_MAX_HEIGHT, HIGH_QUALITY_CRF
+    return DEFAULT_MAX_HEIGHT, DEFAULT_CRF
 
 
 def should_skip_compress(
@@ -181,12 +196,19 @@ def prepare_upload_mp4(
     ffmpeg: str,
     source: Path,
     compress: bool = True,
+    max_height: int = DEFAULT_MAX_HEIGHT,
+    crf: int = DEFAULT_CRF,
 ) -> Tuple[Path, Optional[CompressResult], bool]:
     """返回 (上传用路径, 压缩结果, 是否为临时文件需删除)。"""
     if not compress:
         return source, None, False
 
-    result = compress_mp4(ffmpeg=ffmpeg, source=source)
+    result = compress_mp4(
+        ffmpeg=ffmpeg,
+        source=source,
+        max_height=max_height,
+        crf=crf,
+    )
     if result.skipped:
         return source, result, False
     return result.output, result, True

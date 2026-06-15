@@ -1,3 +1,4 @@
+// 顶栏金币余额与充值「+」入口组件。
 import 'dart:async';
 
 import 'package:flutter/material.dart';

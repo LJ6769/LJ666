@@ -1,3 +1,4 @@
+// 应用级配置：启动背景色、主题色、网络超时等全局常量。
 import 'package:flutter/material.dart';
 
 /// 应用级配置（启动、主题、网络超时等）。

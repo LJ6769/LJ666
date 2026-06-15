@@ -1,3 +1,4 @@
+// 直播间观众列表底部弹层。
 import 'package:flutter/material.dart';
 import 'package:hilmi/data/live_viewers_repository.dart';
 import 'package:hilmi/models/live_viewer.dart';
@@ -31,6 +32,7 @@ class LiveViewersListSheet extends StatefulWidget {
   static const _panelColor = Color(0xFFFDF9ED);
   static const _gridColumns = 4;
   static const _closeBarHeight = 40.0;
+  static bool _isShowing = false;
 
   static Future<void> show(
     BuildContext context, {
@@ -38,23 +40,30 @@ class LiveViewersListSheet extends StatefulWidget {
     String? currentViewerId,
     List<LiveViewer>? viewers,
     LiveViewersRepository viewersRepository = const LiveViewersRepository(),
-  }) {
+  }) async {
+    if (_isShowing || !context.mounted) return;
+    _isShowing = true;
+
     final scale = MediaQuery.sizeOf(context).width / _designWidth;
-    return showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
-      isScrollControlled: true,
-      enableDrag: true,
-      useSafeArea: false,
-      builder: (context) => LiveViewersListSheet(
-        scale: scale,
-        streamerId: streamerId,
-        currentViewerId: currentViewerId,
-        initialViewers: viewers,
-        viewersRepository: viewersRepository,
-      ),
-    );
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black.withValues(alpha: 0.45),
+        isScrollControlled: true,
+        enableDrag: true,
+        useSafeArea: false,
+        builder: (context) => LiveViewersListSheet(
+          scale: scale,
+          streamerId: streamerId,
+          currentViewerId: currentViewerId,
+          initialViewers: viewers,
+          viewersRepository: viewersRepository,
+        ),
+      );
+    } finally {
+      _isShowing = false;
+    }
   }
 
   @override

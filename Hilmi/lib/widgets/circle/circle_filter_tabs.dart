@@ -1,3 +1,4 @@
+// 朋友圈 Popular/Followed 胶囊筛选 Tab。
 import 'package:flutter/material.dart';
 import 'package:hilmi/widgets/circle/circle_assets.dart';
 
@@ -12,7 +13,8 @@ class CircleFilterTabs extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
-  static const _tabHeight = 40.0;
+  /// Popular / Followed 切图显示高度（原 40，等比放大）。
+  static const _tabHeight = 48.0;
 
   @override
   Widget build(BuildContext context) {

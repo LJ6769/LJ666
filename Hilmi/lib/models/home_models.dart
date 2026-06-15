@@ -1,3 +1,4 @@
+// 首页 Feed 模型：LiveRoom、TipsyBarRoom、ProfileStory 等。
 import 'package:hilmi/utils/user_handle.dart';
 
 /// 首页数据模型，后续由数据库/API 填充。
@@ -26,6 +27,10 @@ class LiveRoom {
     this.hostAvatarUrl,
     this.videoUrl,
     this.title,
+    this.description,
+    this.tags = const [],
+    this.categorySlug,
+    this.categoryName,
     this.isLive = true,
   });
 
@@ -37,7 +42,15 @@ class LiveRoom {
   final String? hostHandle;
   final String? hostEmail;
   final String? hostAvatarUrl;
+
+  /// 卡片标题（单行截断展示）。
   final String? title;
+
+  /// 完整简介（About 弹窗与直播间一致）。
+  final String? description;
+  final List<String> tags;
+  final String? categorySlug;
+  final String? categoryName;
   final bool isLive;
 
   /// 优先邮箱，否则 id；占位数据可回退 [hostHandle]。
@@ -55,6 +68,8 @@ class TipsyBarRoom {
     this.coverUrl,
     this.title,
     this.description,
+    this.hostUserId,
+    this.participantUserIds = const [],
     this.participantAvatarUrls = const [],
     this.imageOnRight = false,
   });
@@ -63,6 +78,12 @@ class TipsyBarRoom {
   final String? coverUrl;
   final String? title;
   final String? description;
+
+  /// 房主用户 id（ChatRoomMember sort_order=0），用于更多弹窗举报/拉黑/删除。
+  final String? hostUserId;
+
+  /// 房间成员用户 id（用于全局拉黑过滤）。
+  final List<String> participantUserIds;
   final List<String?> participantAvatarUrls;
   final bool imageOnRight;
 }

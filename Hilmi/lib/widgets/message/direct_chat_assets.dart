@@ -1,3 +1,4 @@
+// 私信聊天页切图资源路径。
 abstract final class DirectChatAssets {
   static const _base = 'assets/messages/chat';
 

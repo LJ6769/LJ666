@@ -1,3 +1,4 @@
+// Tipsy Bar 房间详情、公屏聊天与 Realtime。
 import 'package:flutter/foundation.dart';
 import 'package:hilmi/core/app_bootstrap.dart';
 import 'package:hilmi/core/auth_service.dart';
@@ -82,6 +83,7 @@ sender_id
         params: {'p_room_id': id},
       );
       FeedDataCache.invalidateHomeFeed();
+      FeedDataCache.invalidateTipsyBarPool();
       return true;
     } catch (error, stack) {
       debugPrint('[TipsyBarChatRepository] deleteRoom: $error');
@@ -97,6 +99,29 @@ sender_id
     if (id.isEmpty) return null;
 
     try {
+      try {
+        await client.rpc(
+          'ensure_chat_room_guests',
+          params: {'p_room_id': id},
+        );
+      } on PostgrestException catch (error) {
+        if (error.code == 'PGRST202') {
+          assert(() {
+            debugPrint(
+              '[TipsyBarChatRepository] ensure_chat_room_guests RPC not deployed',
+            );
+            return true;
+          }());
+        } else {
+          debugPrint(
+            '[TipsyBarChatRepository] ensure_chat_room_guests: $error',
+          );
+        }
+      } catch (error, stack) {
+        debugPrint('[TipsyBarChatRepository] ensure_chat_room_guests: $error');
+        debugPrint('$stack');
+      }
+
       final row = await client
           .from(SupabaseTables.chatRoom)
           .select(_roomSelect)
@@ -166,6 +191,31 @@ sender_id
       debugPrint('[TipsyBarChatRepository] fetchMessageById: $error');
       debugPrint('$stack');
       return null;
+    }
+  }
+
+  /// 删除当前用户发送的公屏消息（需已登录）。
+  Future<bool> deleteMessage(String messageId) async {
+    final client = AppBootstrap.client;
+    if (!AppBootstrap.isReady || client == null) return false;
+
+    final id = messageId.trim();
+    if (id.isEmpty) return false;
+
+    if (!AuthService.isLoggedIn) {
+      throw StateError('Not signed in');
+    }
+
+    try {
+      await client.rpc(
+        'delete_own_chat_room_chat',
+        params: {'p_message_id': id},
+      );
+      return true;
+    } catch (error, stack) {
+      debugPrint('[TipsyBarChatRepository] deleteMessage: $error');
+      debugPrint('$stack');
+      rethrow;
     }
   }
 
@@ -264,12 +314,14 @@ sender_id
       );
 
     final members = <TipsyBarChatMember>[];
+    final seenMemberIds = <String>{};
     for (final member in memberRows) {
       final sortOrder = member['sort_order'] as int? ?? 0;
       final profile = _readEmbeddedProfile(member['User']);
       if (profile == null) continue;
       final userId = profile['id'] as String?;
       if (userId == null || userId.isEmpty) continue;
+      if (!seenMemberIds.add(userId)) continue;
       mediaPaths.add(profile['avatar_path'] as String?);
       members.add(
         TipsyBarChatMember(
@@ -314,18 +366,35 @@ sender_id
     );
   }
 
+  static const _hostAudioSlotCount = 10;
+
   static String? _resolveHostAudioPath(String? fromDb, int? roomIndex) {
     final trimmed = fromDb?.trim();
     if (trimmed != null && trimmed.isNotEmpty) return trimmed;
     if (roomIndex == null || roomIndex < 1) return null;
-    return 'chat-audio/$roomIndex.mp3';
+    final slot = ((roomIndex - 1) % _hostAudioSlotCount) + 1;
+    return 'chat-audio/$slot.mp3';
   }
 
   List<TipsyBarChatMember> _membersForRoom(List<TipsyBarChatMember> all) {
     if (all.isEmpty) return const [];
-    final hosts = all.where((m) => m.isHost).toList();
+
+    final hosts = all.where((m) => m.isHost && !m.isVacantSeat).toList();
     final host = hosts.isNotEmpty ? hosts.first : all.first;
-    final guests = all.where((m) => !m.isHost && !m.isVacantSeat).toList();
+    final hostId = host.userId.trim();
+
+    final guests = <TipsyBarChatMember>[];
+    final seenGuestIds = <String>{};
+    if (hostId.isNotEmpty) seenGuestIds.add(hostId);
+
+    for (final member in all) {
+      if (member.isVacantSeat || member.isHost) continue;
+      final guestId = member.userId.trim();
+      if (guestId.isEmpty || !seenGuestIds.add(guestId)) continue;
+      guests.add(member);
+      if (guests.length >= TipsyBarChatRoomDetail.seededGuestCount) break;
+    }
+
     final roster = <TipsyBarChatMember>[host];
     for (var i = 0; i < TipsyBarChatRoomDetail.seededGuestCount; i++) {
       roster.add(

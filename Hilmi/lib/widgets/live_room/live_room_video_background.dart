@@ -1,5 +1,9 @@
+// 直播间全屏视频背景与加载占位。
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hilmi/core/live_video_preloader.dart';
+import 'package:hilmi/services/cached_media_file_loader.dart';
 import 'package:hilmi/services/storage_media_url_resolver.dart';
 import 'package:video_player/video_player.dart';
 
@@ -8,7 +12,7 @@ class LiveRoomVideoBackground extends StatefulWidget {
   const LiveRoomVideoBackground({
     super.key,
     this.videoUrl,
-    this.alignment = const Alignment(0, -0.18),
+    this.alignment = const Alignment(0, -0.55),
     this.onAspectRatioChanged,
     this.onVideoReady,
     this.onVideoFailed,
@@ -31,8 +35,6 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
   bool _failed = false;
   bool _resumeAfterOverlayPause = false;
 
-  static const _bgColor = Color(0xFF0A0618);
-
   @override
   void initState() {
     super.initState();
@@ -51,35 +53,52 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
 
   Future<void> _attachVideo() async {
     final url = widget.videoUrl?.trim() ?? '';
-    if (url.isEmpty || !StorageMediaUrlResolver.isValidSignedMediaUrl(url)) {
-      if (url.isNotEmpty) {
-        debugPrint('[LiveRoomVideo] Invalid video URL, skipped: $url');
-      }
+    if (url.isEmpty) {
       _markFailed(notify: true);
       return;
     }
 
     final generation = ++_prepareGeneration;
+    final cacheKey = CachedMediaFileLoader.resolveKey(url);
 
     try {
-      var controller = await LiveVideoPreloader.claim(url);
-      controller ??= VideoPlayerController.networkUrl(Uri.parse(url));
+      var controller = await LiveVideoPreloader.claim(url, cacheKey: cacheKey);
+      if (controller == null) {
+        if (!StorageMediaUrlResolver.isValidSignedMediaUrl(url)) {
+          debugPrint('[LiveRoomVideo] Invalid video URL, skipped: $url');
+          _markFailed(notify: true);
+          return;
+        }
+        controller = await CachedMediaFileLoader.createVideoController(
+          url: url,
+          cacheKey: cacheKey,
+        );
+      }
 
       if (!controller.value.isInitialized) {
         await controller.initialize();
       }
 
       if (!mounted || generation != _prepareGeneration) {
-        await controller.dispose();
+        await _releaseController(controller);
         return;
       }
 
       _controller = controller;
       await controller.setLooping(true);
       await controller.setVolume(1);
+      if (!mounted || generation != _prepareGeneration) {
+        await _releaseController(controller);
+        _controller = null;
+        return;
+      }
       await controller.play();
 
-      if (!mounted || generation != _prepareGeneration) return;
+      if (!mounted || generation != _prepareGeneration) {
+        await _releaseController(controller);
+        _controller = null;
+        return;
+      }
       final size = controller.value.size;
       if (size.width > 0 && size.height > 0) {
         widget.onAspectRatioChanged?.call(size.width / size.height);
@@ -90,8 +109,11 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
       debugPrint('[LiveRoomVideo] Load failed $url: $error');
       debugPrint('$stack');
       if (generation == _prepareGeneration && mounted) {
-        await _controller?.dispose();
+        final stale = _controller;
         _controller = null;
+        if (stale != null) {
+          await _releaseController(stale);
+        }
         _markFailed(notify: true);
       }
     }
@@ -105,10 +127,37 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
 
   void _disposeController() {
     _prepareGeneration++;
-    _controller?.dispose();
+    final controller = _controller;
     _controller = null;
     _failed = false;
     _resumeAfterOverlayPause = false;
+    if (controller != null) {
+      unawaited(_releaseController(controller));
+    }
+  }
+
+  Future<void> _releaseController(VideoPlayerController controller) async {
+    try {
+      if (controller.value.isInitialized) {
+        await controller.pause();
+        await controller.setVolume(0);
+      }
+    } catch (_) {}
+    try {
+      await controller.dispose();
+    } catch (_) {}
+  }
+
+  /// 退房或页面销毁：立即停止并释放，避免路由退出后仍听到声音。
+  Future<void> stopPlayback() async {
+    _prepareGeneration++;
+    final controller = _controller;
+    _controller = null;
+    _failed = false;
+    _resumeAfterOverlayPause = false;
+    if (controller != null) {
+      await _releaseController(controller);
+    }
   }
 
   /// 登录等全屏页叠在直播间上时暂停播放。
@@ -138,7 +187,15 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
   @override
   void dispose() {
     _prepareGeneration++;
-    _controller?.dispose();
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      if (controller.value.isInitialized) {
+        controller.pause();
+        controller.setVolume(0);
+      }
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -151,42 +208,37 @@ class LiveRoomVideoBackgroundState extends State<LiveRoomVideoBackground> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: _bgColor,
-      child: Stack(
-        fit: StackFit.expand,
-        alignment: Alignment.center,
-        children: [
-          if (!_showVideo && !_failed) const _VideoLoadingPlaceholder(),
-          if (_showVideo)
-            AnimatedOpacity(
-              opacity: 1,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              child: _FullscreenVideo(
-                controller: _controller,
-                alignment: widget.alignment,
-              ),
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        if (!_showVideo && !_failed) const LiveRoomVideoLoadingIndicator(),
+        if (_showVideo)
+          AnimatedOpacity(
+            opacity: 1,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            child: _FullscreenVideo(
+              controller: _controller,
+              alignment: widget.alignment,
             ),
-          if (_failed) const _FullscreenFallback(),
-        ],
-      ),
+          ),
+        if (_failed) const _FullscreenFallback(),
+      ],
     );
   }
 }
 
-class _VideoLoadingPlaceholder extends StatelessWidget {
-  const _VideoLoadingPlaceholder();
+/// 视频区域加载圈（无底色，叠在直播间背景上）。
+class LiveRoomVideoLoadingIndicator extends StatelessWidget {
+  const LiveRoomVideoLoadingIndicator({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: Color(0xFF1A1035),
-      child: Center(
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: Color(0xFF7C3AED),
-        ),
+    return const Center(
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: Color(0xFF7C3AED),
       ),
     );
   }
@@ -215,7 +267,7 @@ class _FullscreenVideo extends StatelessWidget {
 
     return SizedBox.expand(
       child: FittedBox(
-        fit: BoxFit.contain,
+        fit: BoxFit.cover,
         alignment: alignment,
         child: SizedBox(
           width: size.width,

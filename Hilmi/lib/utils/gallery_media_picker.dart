@@ -1,3 +1,4 @@
+// 从相册/相机选图、从相册选视频。
 import 'dart:io';
 
 import 'package:image_picker/image_picker.dart';
